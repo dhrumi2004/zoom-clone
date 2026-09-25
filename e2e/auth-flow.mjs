@@ -17,8 +17,15 @@ for (const [who, p] of [["riya", riya], ["sam", sam], ["aarav", aarav]]) {
   p.on("pageerror", (e) => errors.push(`${who}: ${e.message}`));
   p.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
 }
-const waitText = (p, t, timeout = 15000) => p.waitForFunction((t) => document.body.innerText.includes(t), { timeout }, t);
-const waitPath = (p, re, timeout = 15000) => p.waitForFunction((re) => new RegExp(re).test(location.pathname + location.search), { timeout }, re);
+const who = (p) => (p === riya ? "riya" : p === sam ? "sam" : "aarav");
+const explain = (p, what) => async () => {
+  throw new Error(`[${who(p)}] ${what}. URL ${p.url()} | Text: ${(await p.evaluate(() => document.body.innerText).catch(() => "")).replace(/\n/g, " | ").slice(0, 300)}`);
+};
+// Generous timeouts: the live backend can be slower than localhost
+const waitText = (p, t, timeout = 30000) =>
+  p.waitForFunction((t) => document.body.innerText.includes(t), { timeout }, t).catch(explain(p, `never showed "${t}"`));
+const waitPath = (p, re, timeout = 30000) =>
+  p.waitForFunction((re) => new RegExp(re).test(location.pathname + location.search), { timeout }, re).catch(explain(p, `never reached ${re}`));
 const click = async (p, t) => {
   const m = `[normalize-space()="${t}" or @aria-label="${t}"]`;
   const inDialog = await p.$(`::-p-xpath(//div[@role="dialog"]//button${m})`);
@@ -73,7 +80,7 @@ await sam.goto(invite); await waitPath(sam, "^/login\\?next=%2Fj%2F"); await wai
 await click(sam, "Sign up free"); await sam.waitForSelector("#name");
 await fill(sam, "#name", "Sam Lee"); await fill(sam, "#email", samEmail); await fill(sam, "#password", "secret123"); await fill(sam, "#confirm", "secret123");
 await click(sam, "Sign Up"); await waitPath(sam, "^/j/"); await waitText(sam, "Riya's Planning Call");
-await sam.waitForFunction(() => document.querySelector("#join-name")?.value === "Sam Lee" || document.querySelector("#join-name")?.placeholder === "Sam Lee");
+await sam.waitForFunction(() => document.querySelector("#join-name")?.value === "Sam Lee"); // prefilled from the account
 await click(sam, "Join"); await waitPath(sam, "^/meeting/"); await click(sam, "Join"); await waitText(sam, "Participants");
 ok(6, "Sam: invite link -> sign in page -> sign up -> back to the invite -> joined with his own name");
 

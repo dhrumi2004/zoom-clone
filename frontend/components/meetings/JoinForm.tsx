@@ -30,7 +30,8 @@ export function JoinForm({ presetCode, presetPasscode, mode = "join", onCancel }
   const { user } = useCurrentUser();
 
   const [idInput, setIdInput] = useState(presetCode ?? "");
-  const [name, setName] = useState(() => prefs.rememberedName() ?? "");
+  // null = not edited yet: show the remembered name, or your account name once it has loaded
+  const [name, setName] = useState<string | null>(() => prefs.rememberedName());
   const [remember, setRemember] = useState(() => prefs.rememberedName() !== null);
   const [noAudio, setNoAudio] = useState(false);
   const [videoOff, setVideoOff] = useState(mode === "share");
@@ -42,7 +43,10 @@ export function JoinForm({ presetCode, presetPasscode, mode = "join", onCancel }
   const [loading, setLoading] = useState(false);
 
   // The signed-in user's name is the default, like Zoom's desktop app.
-  const displayName = (name || user?.name || (mode === "share" ? "Guest" : "")).trim();
+  const nameValue = name ?? user?.name ?? "";
+  const displayName = (nameValue || (mode === "share" ? user?.name ?? "Guest" : "")).trim();
+  // Don't allow Join before we know your name (the profile is still loading on a slow connection)
+  const profileLoading = name === null && !user;
 
   const enterMeeting = (meetingCode: string, meetingPasscode?: string) => {
     prefs.setRememberedName(remember ? displayName : null);
@@ -139,10 +143,10 @@ export function JoinForm({ presetCode, presetPasscode, mode = "join", onCancel }
           <Label htmlFor="join-name">Your name</Label>
           <TextInput
             id="join-name"
-            value={name}
+            value={nameValue}
             maxLength={100}
             onChange={(e) => setName(e.target.value)}
-            placeholder={user?.name ?? "Enter your name"}
+            placeholder={profileLoading ? "Loading your name…" : "Enter your name"}
             aria-invalid={error?.field === "name"}
             autoFocus={!!presetCode}
           />
@@ -166,7 +170,7 @@ export function JoinForm({ presetCode, presetPasscode, mode = "join", onCancel }
       <FormButtons
         loading={loading}
         submitLabel={mode === "share" ? "Share" : "Join"}
-        disabled={!idInput.trim()}
+        disabled={!idInput.trim() || (mode === "join" && profileLoading)}
         onCancel={onCancel}
       />
     </form>

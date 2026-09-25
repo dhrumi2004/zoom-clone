@@ -2,8 +2,11 @@
 
 A working clone of the Zoom Workplace web app. You can start instant meetings, join by Meeting ID or invite link, schedule meetings, and hold **real video calls** in the browser with audio, video, screen sharing, chat, reactions, a waiting room and host controls.
 
-- **Live demo:** _add your Vercel URL here_
-- **API docs (Swagger):** _add your Render URL here_/docs
+- **Live demo:** https://zoom-clone-eta-hazel.vercel.app
+- **Backend API docs (Swagger):** https://zoom-clone-api-8uvt.onrender.com/docs
+- **Source code:** https://github.com/dhrumi2004/zoom-clone
+
+> The backend runs on Render's free plan, which sleeps when idle: the **first** page load can take up to a minute while it wakes up.
 
 | Home | Meeting (chat) |
 |---|---|
@@ -332,7 +335,7 @@ npm run dev                          # http://localhost:3000
 **3. Try a call on one computer:** click **New meeting** → **Start**, copy the invite link from the shield icon, and open it in an **Incognito window**. Use headphones to avoid echo.
 
 ### Browser tests
-With both servers running on a **fresh** database:
+With both servers running on a **fresh** database (or against a deployment with `APP_URL=… API_URL=… npm run all`):
 ```bash
 cd e2e && npm install && npm run all   # runs every file with a time limit and cleans up its browsers
 ```
@@ -352,7 +355,7 @@ cd e2e && npm install && npm run all   # runs every file with a time limit and c
 3. Set `FRONTEND_URL` to your Vercel URL (for example `https://zoom-clone.vercel.app`). It's used for invite links and CORS.
 
 **Frontend → Vercel**
-1. In Vercel: **Add New → Project**, import the repo, and set **Root Directory** to `frontend`.
+1. In Vercel: **Add New → Project**, import the repo, and set **Root Directory** to `frontend`. (Deployed here as a project linked to this GitHub repo, so every push to `main` redeploys.)
 2. Add the environment variable `NEXT_PUBLIC_API_URL` = your Render URL (for example `https://zoom-clone-api.onrender.com`).
 3. Deploy. The WebSocket address is derived automatically (`https` → `wss`).
 

@@ -1,6 +1,7 @@
 import puppeteer from "puppeteer-core";
 const SP = process.argv[2];
-const APP = "http://localhost:3000", API = "http://127.0.0.1:8000";
+// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
+const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
 const browser = await puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1440, height: 900 },

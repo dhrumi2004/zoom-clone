@@ -1,7 +1,8 @@
 // Team Chat, Mail, Calendar, Docs, Whiteboards, Contacts, Apps, Settings (one browser, fresh database).
 import puppeteer from "puppeteer-core";
 const OUT = process.argv[2] ?? ".";
-const APP = "http://localhost:3000", API = "http://127.0.0.1:8000";
+// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
+const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
 const browser = await puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1366, height: 820 },
@@ -108,7 +109,7 @@ ok(6, `whiteboard: drew ${JSON.parse(board.data).length} strokes, saved; undo ->
 await page.goto(`${APP}/contacts`); await waitText("Priya Patel");
 await (await page.waitForSelector(`::-p-xpath(//aside//button[.//span[normalize-space()="Sneha Iyer"]])`)).click();
 await waitText("UX Designer"); await click("Star");
-await page.waitForFunction(async () => (await (await fetch("http://127.0.0.1:8000/api/contacts")).json()).find((c) => c.name === "Sneha Iyer").is_favorite);
+await page.waitForFunction(async (api) => (await (await fetch(api + "/api/contacts")).json()).find((c) => c.name === "Sneha Iyer").is_favorite, {}, API);
 await shot("contacts");
 await click("Chat"); await page.waitForFunction(() => location.pathname === "/chat" && location.search.startsWith("?c="));
 await waitText("Sneha Iyer");

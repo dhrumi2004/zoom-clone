@@ -110,6 +110,13 @@ SDE fullstack assignment: a Zoom web app clone. UI/UX must look like real Zoom. 
 - Frontend: MeetingClient handles all of these (a second room_state closes every peer and re-offers). New: participantActions.ts (one builder for the tile "…" menu and Participants panel), RenameDialog, SecurityMenu, PollsPanel, BreakoutDialog, Toolbar DeviceMenu (mic/speaker/camera + blur) and More menu, captions overlay (`hooks/useSpeechCaptions`), `lib/meeting/recorder.ts` (tab capture + mic mix → .webm download), `lib/meeting/backgroundBlur.ts` (MediaPipe tasks-vision from jsdelivr + Google model URL), `hooks/useElapsed` (timer). LocalMedia: setBlur, switchCamera, switchMic. prefs: speakerId, blur, usePmi
 - e2e: `run.mjs` runs files with a 4-minute limit and kills leftover test Chromes (`pkill -f puppeteer_dev_chrome_profile`); `meeting-extras.mjs` covers the features above
 
+## Deployment (live)
+- Frontend (Vercel project `zoom-clone`, linked to GitHub, auto-deploys on push to main): https://zoom-clone-eta-hazel.vercel.app. Env `NEXT_PUBLIC_API_URL=https://zoom-clone-api-8uvt.onrender.com`
+- Backend (Render web service `zoom-clone-api`, srv-darapbugekts738se5o0, free plan, Singapore, rootDir backend, autoDeploy): https://zoom-clone-api-8uvt.onrender.com. Env FRONTEND_URL = the Vercel URL, CORS_ORIGIN_REGEX `https://.*\.vercel\.app`, PYTHON_VERSION 3.11.11. SQLite resets on every deploy/restart (then reseeds)
+- GitHub: https://github.com/dhrumi2004/zoom-clone
+- The user's API keys live in ~/.render-key and ~/.vercel-token (outside the repo). Never print or commit them
+- e2e against production: `APP_URL=… API_URL=… node run.mjs meeting meeting-extras`
+
 ## Progress
 - [x] Step 1: backend scaffold, models, seed, /health
 - [x] Step 2: REST API (instant create, schedule, get by code, join validation, upcoming/recent, participants)

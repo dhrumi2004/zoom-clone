@@ -1,0 +1,15 @@
+{
+  "name": "zoom-clone-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests: run the backend on :8000 and the frontend on :3000 first. Uses your installed Google Chrome with fake camera/mic.",
+  "scripts": {
+    "flows": "node flows.mjs .",
+    "meeting": "node meeting.mjs .",
+    "host-controls": "node host-controls.mjs .",
+    "all": "node flows.mjs . && node meeting.mjs . && node host-controls.mjs ."
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

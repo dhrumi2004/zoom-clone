@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Zoom design tokens. Use as Tailwind classes, e.g. bg-zoom-blue, text-ink-muted, border-line */
+@theme {
+  --font-sans: var(--font-lato), "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* Brand */
+  --color-zoom-blue: #0b5cff;
+  --color-zoom-blue-hover: #0048e0;
+  --color-zoom-blue-soft: #e8f0ff;
+  --color-zoom-orange: #ff742e;
+  --color-zoom-orange-hover: #f26419;
+
+  /* Text */
+  --color-ink: #232333;
+  --color-ink-muted: #6e7680;
+  --color-ink-subtle: #909096;
+
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f7f7fa;
+  --color-surface-hover: #f1f1f6;
+  --color-line: #e8e8ef;
+
+  /* Status */
+  --color-success: #00a93f;
+  --color-danger: #e02828;
+
+  /* In-meeting dark UI (used from Step 7) */
+  --color-meeting-bg: #1a1a1a;
+  --color-meeting-tile: #2d2d2d;
+  --color-meeting-bar: #1f1f1f;
+
+  --shadow-popover: 0 4px 24px rgb(0 0 0 / 0.12), 0 1px 4px rgb(0 0 0 / 0.06);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Zoom-style focus ring for keyboard users. In the base layer so utilities like outline-none can override it. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-zoom-blue);
+    outline-offset: 2px;
+  }
+}

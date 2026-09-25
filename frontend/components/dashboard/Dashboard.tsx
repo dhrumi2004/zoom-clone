@@ -28,7 +28,7 @@ export function Dashboard() {
     <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-10 px-4 py-8 sm:px-6 lg:flex-row lg:items-start lg:justify-center lg:gap-16 lg:py-14">
       <div className="flex w-full max-w-md flex-col items-center gap-10 lg:w-auto lg:pt-10">
         <ActionTiles
-          onNewMeeting={startInstant}
+          onNewMeeting={() => startInstant()}
           creating={creating}
           onJoin={() => setDialog({ kind: "join" })}
           onSchedule={openSchedule}

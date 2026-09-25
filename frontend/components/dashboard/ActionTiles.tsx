@@ -5,7 +5,8 @@ import { ArrowUp, ChevronDown, Plus, Video } from "lucide-react";
 import { ReactNode, useCallback, useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/Field";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { prefs } from "@/lib/storage";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { api } from "@/lib/api";
 
 interface ActionTilesProps {
   onNewMeeting?: () => void;
@@ -84,10 +85,11 @@ function Tile({
   );
 }
 
-/** The chevron next to "New meeting": Zoom's "Start with video" option, remembered across visits. */
+/** The chevron next to "New meeting": Zoom's "Start with video" option (the same setting as in Settings > Meetings). */
 function NewMeetingOptions() {
   const [open, setOpen] = useState(false);
-  const [withVideo, setWithVideo] = useState(() => prefs.startWithVideo());
+  const { data: settings, mutate } = useUserSettings();
+  const withVideo = settings?.start_with_video ?? true;
   const ref = useRef<HTMLSpanElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useClickOutside(ref, close, open);
@@ -107,10 +109,12 @@ function NewMeetingOptions() {
         <span className="absolute top-full left-1/2 z-30 mt-2 block w-56 -translate-x-1/2 rounded-lg border border-line bg-surface p-3 text-left shadow-popover">
           <Checkbox
             checked={withVideo}
-            onChange={(on) => {
-              setWithVideo(on);
-              prefs.setStartWithVideo(on);
-            }}
+            onChange={(on) =>
+              mutate(api.updateSettings({ start_with_video: on }), {
+                optimisticData: settings && { ...settings, start_with_video: on },
+                revalidate: false,
+              })
+            }
             label="Start with video"
           />
         </span>

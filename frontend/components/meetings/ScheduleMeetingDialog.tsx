@@ -6,6 +6,7 @@ import { Checkbox, FieldError, Label, RadioGroup, Select, TextArea, TextInput } 
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useUserSettings } from "@/hooks/useUserSettings";
 import { refreshMeetingLists } from "@/hooks/useMeetings";
 import { api, ApiError } from "@/lib/api";
 import {
@@ -18,6 +19,7 @@ import {
   toTimeValue,
 } from "@/lib/schedule";
 import type { Meeting, MeetingSettings } from "@/lib/types";
+import type { UserSettings } from "@/lib/workspaceTypes";
 import { ScheduledMeetingDetails } from "./ScheduledMeetingDetails";
 
 interface Props {
@@ -25,10 +27,14 @@ interface Props {
   onClose: () => void;
   /** Pass a meeting to edit it; omit to schedule a new one. */
   meeting?: Meeting | null;
+  /** Pre-filled start time for a new meeting (Calendar: clicking an empty slot). */
+  initialStart?: Date | null;
 }
 
-export function ScheduleMeetingDialog({ open, onClose, meeting }: Props) {
+export function ScheduleMeetingDialog({ open, onClose, meeting, initialStart }: Props) {
   const [saved, setSaved] = useState<Meeting | null>(null);
+  const { data: defaults, error: defaultsError } = useUserSettings();
+  const defaultsLoaded = defaults !== undefined || defaultsError !== undefined;
   const close = () => {
     setSaved(null);
     onClose();
@@ -43,8 +49,11 @@ export function ScheduleMeetingDialog({ open, onClose, meeting }: Props) {
     >
       {saved ? (
         <ScheduledMeetingDetails meeting={saved} onDone={close} />
+      ) : !defaultsLoaded ? (
+        // Wait for Settings defaults (duration, waiting room...) so the form starts with the right values
+        <div className="h-96 animate-pulse rounded-lg bg-surface-hover" />
       ) : (
-        <ScheduleForm meeting={meeting ?? null} onCancel={close} onSaved={(m) => (meeting ? close() : setSaved(m))} />
+        <ScheduleForm meeting={meeting ?? null} initialStart={initialStart ?? null} onCancel={close} onSaved={(m) => (meeting ? close() : setSaved(m))} />
       )}
     </Modal>
   );
@@ -58,9 +67,9 @@ type Settings = Pick<
   "waiting_room" | "mute_on_entry" | "host_video_on" | "participant_video_on" | "allow_chat" | "allow_screen_share"
 >;
 
-function initialValues(meeting: Meeting | null, hostName?: string) {
-  const start = meeting?.scheduled_start ? new Date(meeting.scheduled_start) : nextHalfHour();
-  const duration = meeting?.duration_min ?? 60;
+function initialValues(meeting: Meeting | null, hostName?: string, initialStart?: Date | null, defaults?: UserSettings) {
+  const start = meeting?.scheduled_start ? new Date(meeting.scheduled_start) : (initialStart ?? nextHalfHour());
+  const duration = meeting?.duration_min ?? defaults?.default_duration_min ?? 60;
   return {
     title: meeting?.title ?? (hostName ? `${hostName}'s Zoom Meeting` : "My Meeting"),
     description: meeting?.description ?? "",
@@ -70,8 +79,8 @@ function initialValues(meeting: Meeting | null, hostName?: string) {
     minutes: duration % 60,
     passcode: meeting?.passcode ?? randomPasscode(),
     settings: {
-      waiting_room: meeting?.settings.waiting_room ?? false,
-      mute_on_entry: meeting?.settings.mute_on_entry ?? false,
+      waiting_room: meeting?.settings.waiting_room ?? defaults?.default_waiting_room ?? false,
+      mute_on_entry: meeting?.settings.mute_on_entry ?? defaults?.default_mute_on_entry ?? false,
       host_video_on: meeting?.settings.host_video_on ?? true,
       participant_video_on: meeting?.settings.participant_video_on ?? true,
       allow_chat: meeting?.settings.allow_chat ?? true,
@@ -82,16 +91,19 @@ function initialValues(meeting: Meeting | null, hostName?: string) {
 
 function ScheduleForm({
   meeting,
+  initialStart,
   onCancel,
   onSaved,
 }: {
   meeting: Meeting | null;
+  initialStart: Date | null;
   onCancel: () => void;
   onSaved: (m: Meeting) => void;
 }) {
   const toast = useToast();
   const { user } = useCurrentUser();
-  const [values, setValues] = useState(() => initialValues(meeting, user?.name));
+  const { data: defaults } = useUserSettings();
+  const [values, setValues] = useState(() => initialValues(meeting, user?.name, initialStart, defaults));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 

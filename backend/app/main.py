@@ -8,7 +8,7 @@ from . import models  # noqa: F401  (registers tables on Base.metadata)
 from .config import CORS_ORIGIN_REGEX, CORS_ORIGINS
 from .database import Base, SessionLocal, engine
 from .exceptions import register_exception_handlers
-from .routers import meetings, users, ws
+from .routers import apps, contacts, documents, mail, meetings, team_chat, users, ws
 from .seed import seed_if_empty
 
 
@@ -36,6 +36,12 @@ register_exception_handlers(app)
 app.include_router(users.router)
 app.include_router(meetings.router)
 app.include_router(ws.router)
+app.include_router(contacts.router)
+app.include_router(team_chat.router)
+app.include_router(mail.router)
+app.include_router(documents.docs)
+app.include_router(documents.boards)
+app.include_router(apps.router)
 
 
 @app.get("/health", tags=["system"])

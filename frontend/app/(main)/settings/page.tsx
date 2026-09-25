@@ -1,6 +1,10 @@
-import { Settings } from "lucide-react";
-import { Placeholder } from "@/components/ui/Placeholder";
+import { Suspense } from "react";
+import { SettingsPage } from "@/components/settings/SettingsPage";
 
-export default function SettingsPage() {
-  return <Placeholder icon={Settings} title="Settings" text="Profile and meeting settings are placeholders in this clone." />;
+export default function Settings() {
+  return (
+    <Suspense>
+      <SettingsPage />
+    </Suspense>
+  );
 }

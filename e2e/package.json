@@ -7,7 +7,8 @@
     "flows": "node flows.mjs .",
     "meeting": "node meeting.mjs .",
     "host-controls": "node host-controls.mjs .",
-    "all": "node flows.mjs . && node meeting.mjs . && node host-controls.mjs ."
+    "all": "node flows.mjs . && node meeting.mjs . && node host-controls.mjs . && node workspace.mjs .",
+    "workspace": "node workspace.mjs ."
   },
   "dependencies": {
     "puppeteer-core": "^24.0.0"

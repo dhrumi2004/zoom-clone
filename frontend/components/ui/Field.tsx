@@ -107,3 +107,35 @@ export function FieldError({ children }: { children?: ReactNode }) {
     </p>
   );
 }
+
+/** iOS/Zoom-style on/off switch with a label on the left. */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: ReactNode;
+  hint?: ReactNode;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-6 py-3">
+      <span className="text-sm">
+        {label}
+        {hint && <span className="mt-0.5 block text-xs text-ink-muted">{hint}</span>}
+      </span>
+      <input type="checkbox" role="switch" className="peer sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span
+        aria-hidden
+        className={clsx(
+          "relative h-6 w-10 shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-zoom-blue/40",
+          checked ? "bg-zoom-blue" : "bg-ink-subtle/50",
+          "after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition-transform",
+          checked && "after:translate-x-4",
+        )}
+      />
+    </label>
+  );
+}

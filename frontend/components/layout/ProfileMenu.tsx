@@ -56,7 +56,9 @@ export function ProfileMenu() {
           </div>
 
           <MenuDivider />
-          <MenuItem icon={UserRound} label="My profile" />
+          <Link href="/settings?tab=profile" onClick={close} role="menuitem">
+            <MenuItem icon={UserRound} label="My profile" />
+          </Link>
           <Link href="/settings" onClick={close} role="menuitem">
             <MenuItem icon={Settings} label="Settings" />
           </Link>

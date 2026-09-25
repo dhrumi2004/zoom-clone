@@ -35,6 +35,20 @@ A working clone of the Zoom Workplace web app. You can start instant meetings, j
 - **Meeting info** (shield icon): ID, host, passcode, copyable invite link
 - Keyboard shortcuts: **Alt+A** mute/unmute, **Alt+V** start/stop video
 
+### Zoom Workplace sections (top bar)
+Every tab in the top bar is a working, database-backed section:
+
+| Tab | What it does |
+|---|---|
+| **Team Chat** | Channels and direct messages with colleagues, create channels, start DMs, unread badges, links, and a **Meet** button that starts a meeting and posts the invite in the chat |
+| **Mail** | Inbox / Starred / Sent / Trash, reading pane, compose and reply, star, move to Trash and restore, delete forever, search |
+| **Calendar** | Week and day views of your meetings with overlap handling and a "now" line. Click an empty slot to schedule there; click a meeting to Start, Copy invitation, Edit or Delete |
+| **Docs** | Documents with a formatting toolbar (headings, bold, italic, underline, lists, quotes, undo/redo) and autosave. HTML is sanitized on the server |
+| **Whiteboards** | Drawing canvas with pen, highlighter, eraser, 8 colors, 4 sizes, undo/redo, clear, PNG download, and autosave |
+| **Contacts** | Directory with search, starred contacts, and a profile card with **Meet**, **Chat** and **Email** actions |
+| **Apps** | Marketplace with categories and search; add/remove apps ("My apps") |
+| **Settings** | Profile (name, avatar color, job details), meeting defaults (start with video, mute on join, default duration, waiting room, mute on entry), camera/microphone selection with live preview and mic level, keyboard shortcuts |
+
 ### Bonus
 - **Host controls:** Mute All, mute one person, Ask to Unmute (hosts can't force a mic on, same as Zoom), Remove participant, **End meeting for all**
 - **Waiting room:** guests wait until the host clicks **Admit** / **Admit all** / **Remove**
@@ -91,6 +105,16 @@ erDiagram
   users |o--o{ participants : "is (null for guests)"
   meetings ||--o{ chat_messages : contains
   participants ||--o{ chat_messages : sends
+  users ||--|| user_profiles : has
+  users ||--|| user_settings : has
+  users ||--o{ contacts : "owns (favorites)"
+  channels ||--o{ channel_members : has
+  users ||--o{ channel_members : "member of"
+  channels ||--o{ channel_messages : contains
+  users ||--o{ emails : "mailbox"
+  users ||--o{ documents : owns
+  users ||--o{ whiteboards : owns
+  users ||--o{ installed_apps : installs
 
   users {
     int id PK
@@ -146,6 +170,13 @@ erDiagram
   }
 ```
 
+The workspace tables (details in `backend/app/models/workspace.py`):
+- `user_profiles` / `user_settings`: 1:1 with users (primary key = user_id), so `users` stays small
+- `contacts`: owner → contact with `is_favorite`; UNIQUE(owner_id, contact_id) and CHECK(owner ≠ contact)
+- `channels` (type channel | direct), `channel_members` (composite primary key; `last_read_at` drives unread counts), `channel_messages` (index on channel_id, sent_at). A DM is simply a 2-member channel
+- `emails`: one row per mailbox copy, with `folder` (inbox | sent | trash) plus `original_folder` so Restore knows where to go
+- `documents` (sanitized HTML), `whiteboards` (strokes as JSON), `installed_apps` (composite primary key user_id + app_key; the catalog is static)
+
 **Design decisions**
 - **`participants` is one row per join session**, not per person. Guests don't need an account (`user_id` is nullable), and rejoining creates a new row, so each row keeps accurate join/leave times. "Recent meetings" and participant counts come from these rows.
 - **`meeting_settings` is a separate 1:1 table** (its primary key is also the foreign key), so meeting options can grow without widening `meetings`.
@@ -177,6 +208,16 @@ Interactive docs: `http://127.0.0.1:8000/docs`
 | POST | `/api/meetings/{code}/leave` | Leave (the last one out ends the meeting) |
 | POST | `/api/meetings/{code}/end` | Host: end for everyone |
 | GET | `/api/meetings/{code}/participants` | People currently in the meeting |
+| GET | `/api/meetings/calendar?start=&end=` | Your meetings in a date range (Calendar) |
+| PATCH | `/api/users/me` · GET `/api/users/me/profile` | Update name, avatar color and profile details |
+| GET / PATCH | `/api/users/me/settings` | Personal meeting defaults |
+| GET | `/api/users/me/badges` | Unread counts for Team Chat and Mail |
+| GET / PATCH | `/api/contacts`, `/api/contacts/{user_id}` | Directory; star / unstar |
+| GET / POST | `/api/chat/channels` · POST `/api/chat/direct` | List / create channels; open or create a DM |
+| GET / POST | `/api/chat/channels/{id}/messages` | Read (marks as read) / send |
+| GET / POST / PATCH / DELETE | `/api/mail`, `/api/mail/{id}` | Folders + search, send, star/read/trash/restore, delete forever |
+| CRUD | `/api/docs`, `/api/whiteboards` | Documents and whiteboards |
+| GET / PUT / DELETE | `/api/apps`, `/api/apps/{key}` | Marketplace; add / remove |
 
 Errors have one shape, `{"code": "wrong_passcode", "detail": "Wrong passcode. Please try again."}`, and the frontend switches on `code`.
 
@@ -192,19 +233,20 @@ backend/
     main.py            FastAPI app, CORS, startup (create tables + seed)
     config.py          settings from environment variables
     database.py        engine, session, SQLite foreign keys
-    models.py          SQLAlchemy models (the schema)
-    schemas.py         Pydantic request/response models
-    seed.py            sample data (python -m app.seed --reset)
-    routers/           users.py, meetings.py (REST), ws.py (WebSocket)
-    services/          meetings.py, participants.py, codes.py (business logic)
+    models/            SQLAlchemy models: core.py (meetings), workspace.py (chat, mail, docs...)
+    schemas/           Pydantic request/response models (core.py, workspace.py)
+    seed.py            sample data (python -m app.seed --reset); seed_workspace.py for the workspace sections
+    routers/           meetings, users, contacts, team_chat, mail, documents, apps (REST), ws.py (WebSocket)
+    services/          business logic, one module per feature
     realtime/          manager.py (rooms in memory), session.py, handlers.py (one handler per message type)
 frontend/
-  app/                 routes: (main)/ dashboard, meetings, settings · meeting/[code] · j/[code] (invite links)
+  app/                 routes: (main)/ dashboard, meetings, chat, mail, calendar, docs, whiteboards, contacts, apps, settings · meeting/[code] · j/[code]
   components/
     layout/            TopNav, NavTabs, ProfileMenu
     dashboard/         ActionTiles, ClockHero, Upcoming/Recent lists, MeetingsTabs
     meetings/          JoinForm, JoinMeetingDialog, ScheduleMeetingDialog, InviteLanding
     meeting/           PreJoinScreen, MeetingRoom, VideoStage, VideoTile, Toolbar, Chat/Participants panels, WaitingRoom
+    chat/ mail/ calendar/ docs/ whiteboard/ contacts/ apps/ settings/   one folder per workspace section
     ui/                Button, Modal, Field, Toast, DropdownMenu, Avatar…
   lib/
     api.ts, types.ts   typed REST client
@@ -252,6 +294,7 @@ cd e2e && npm install && npm run all
 - `flows.mjs`: join validation (bad ID, passcode step, wrong passcode), scheduling, invite links, instant meetings
 - `meeting.mjs`: two browsers: video/audio both ways, mute, camera toggle, reactions, screen share, end for all
 - `host-controls.mjs`: three browsers: waiting room admit/remove, chat both ways, mute, ask to unmute, mute all, remove
+- `workspace.mjs`: every top-bar section: Team Chat, Mail, Calendar, Docs (autosave + reload), Whiteboards (draw, save, undo), Contacts, Apps, Settings (profile, defaults, camera preview)
 
 ---
 
@@ -282,5 +325,6 @@ cd e2e && npm install && npm run all
 - **Mesh WebRTC** suits small meetings (about 2–6 people). Larger meetings would need a media server (SFU), which is what Zoom itself uses.
 - **Live meeting state** (who is connected, waiting room, raised hands, screen sharer) is kept **in the server's memory**, so the backend runs as **one worker**. Scaling out would move this into Redis pub/sub.
 - **Camera and mic require HTTPS or localhost** (a browser rule). To test from a phone, use the deployed HTTPS site.
-- Not built: recording, breakout rooms, private chat, virtual backgrounds, the audio/video device picker (the toolbar ⌃ carets are visual only), and the Team Chat / Mail / Calendar / Docs / Whiteboards / Contacts / Apps tabs, which are placeholders for visual parity.
+- **Workspace sections are single-user**, like the rest of the app: Team Chat and Mail show seeded messages from colleagues, and what you send is stored, but no real person receives it (there's no login). Team Chat refreshes every few seconds instead of using WebSockets. Mail stays inside the app (no SMTP).
+- Not built: recording, breakout rooms, private in-meeting chat, virtual backgrounds, the in-meeting device menu (the toolbar ⌃ carets are visual only; pick devices in Settings > Video & Audio), and real-time co-editing of docs and whiteboards.
 - The "zoom" wordmark is drawn with text, not Zoom's trademarked logo.

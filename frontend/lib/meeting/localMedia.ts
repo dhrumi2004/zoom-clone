@@ -5,6 +5,7 @@
  * - Stop Video releases the camera (the camera light turns off); Start Video asks for a new track.
  * - The MeetingClient listens for changes and swaps tracks on every peer connection.
  */
+import { prefs } from "@/lib/storage";
 import { Store } from "./store";
 
 export interface LocalMediaState {
@@ -29,6 +30,11 @@ function describeMediaError(error: unknown, device: "camera" | "microphone"): st
   if (typeof navigator !== "undefined" && !navigator.mediaDevices)
     return `Your browser can't access the ${device} on this page (it needs HTTPS or localhost).`;
   return `Couldn't start your ${device}.`;
+}
+
+/** Prefer the device chosen in Settings > Video & Audio, but fall back to any device if it's gone. */
+function deviceConstraint(id: string | null): { deviceId?: ConstrainDOMString } {
+  return id ? { deviceId: { ideal: id } } : {};
 }
 
 export class LocalMedia extends Store<LocalMediaState> {
@@ -74,7 +80,7 @@ export class LocalMedia extends Store<LocalMediaState> {
   private async acquireMic() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...deviceConstraint(prefs.micId()) },
       });
       const track = stream.getAudioTracks()[0];
       if (this.destroyed) return track.stop();
@@ -95,7 +101,7 @@ export class LocalMedia extends Store<LocalMediaState> {
     this.setState({ camStarting: true });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user", ...deviceConstraint(prefs.cameraId()) },
       });
       const track = stream.getVideoTracks()[0];
       if (this.destroyed) return track.stop();

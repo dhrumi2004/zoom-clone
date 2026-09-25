@@ -22,6 +22,7 @@ from .models import (
     ParticipantRole,
     User,
 )
+from .seed_workspace import seed_workspace_if_empty
 from .services.codes import generate_unique_meeting_code
 from .utils import AVATAR_COLORS, generate_passcode, utcnow
 
@@ -157,11 +158,13 @@ def seed(db: Session) -> None:
 
 
 def seed_if_empty(db: Session) -> bool:
-    """Seed only on a fresh database. Returns True if data was inserted."""
-    if db.scalar(select(User.id).limit(1)) is not None:
-        return False
-    seed(db)
-    return True
+    """Seed whatever is empty: meetings/users on a fresh database, workspace data (chat, mail, docs...)
+    also for databases created before those features existed. Returns True if data was inserted."""
+    inserted = False
+    if db.scalar(select(User.id).limit(1)) is None:
+        seed(db)
+        inserted = True
+    return seed_workspace_if_empty(db) or inserted
 
 
 def reset_database() -> None:
@@ -169,6 +172,7 @@ def reset_database() -> None:
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed(db)
+        seed_workspace_if_empty(db)
 
 
 if __name__ == "__main__":

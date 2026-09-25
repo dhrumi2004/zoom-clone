@@ -98,6 +98,12 @@ SDE fullstack assignment: a Zoom web app clone. UI/UX must look like real Zoom. 
 - All datetimes are naive UTC. The frontend converts them to local time.
 - Invite link format: `{FRONTEND_URL}/j/{meeting_code}?pwd={passcode}`
 
+## Workspace sections (added after Step 10, at the user's request)
+- Backend: `models/` and `schemas/` are packages (core.py = meetings, workspace.py = new tables); `from ..models import X` still works. New tables: user_profiles, user_settings, contacts, channels, channel_members, channel_messages, emails, documents, whiteboards, installed_apps. `seed_workspace.py` seeds them whenever `channels` is empty (so old DBs get them too). Services/routers: profile+users, contacts, team_chat, mail, documents (docs + whiteboards, HTML sanitized with nh3), apps (static CATALOG). Calendar: `GET /api/meetings/calendar`
+- Frontend: nav items all real links (`components/layout/navItems.ts`, "More" menu for secondary tabs below xl and on the phone bottom bar, unread badges via `useBadges`). Pages: /chat (TeamChat, `?c=`), /mail (MailApp, `?folder=&m=&compose=`), /calendar (CalendarView + calendarMath + MeetingDetailsDialog), /docs + /docs/[id] (DocEditor, contentEditable + execCommand, `.doc-content` CSS), /whiteboards + /whiteboards/[id] (canvas, 1600x1000 logical coords, strokes JSON), /contacts (`?u=`), /apps, /settings (`?tab=profile|meetings|video|shortcuts`). Shared: `workspace/FileGrid`, `workspace/PageShell`, `hooks/useAutosave`, `hooks/useUserSettings`, `ui/Field` Switch
+- `start_with_video` / `mute_on_join` live in `user_settings` (server); camera/mic device ids in localStorage (`prefs.cameraId/micId`), used by LocalMedia. The Schedule dialog waits for settings and uses them as defaults
+- e2e: `workspace.mjs` covers all sections
+
 ## Progress
 - [x] Step 1: backend scaffold, models, seed, /health
 - [x] Step 2: REST API (instant create, schedule, get by code, join validation, upcoming/recent, participants)

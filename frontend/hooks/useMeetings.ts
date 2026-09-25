@@ -11,7 +11,11 @@ export function useRecentMeetings() {
   return useSWR(keys.recent, api.getRecent);
 }
 
-/** Re-fetch both dashboard lists after creating, editing, deleting or ending a meeting. */
+/** Re-fetch the dashboard lists and any open calendar week after creating, editing, deleting or ending a meeting. */
 export function refreshMeetingLists() {
-  return Promise.all([mutate(keys.upcoming), mutate(keys.recent)]);
+  return Promise.all([
+    mutate(keys.upcoming),
+    mutate(keys.recent),
+    mutate((key) => Array.isArray(key) && key[0] === "calendar"),
+  ]);
 }

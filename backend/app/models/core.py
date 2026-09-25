@@ -21,8 +21,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .database import Base
-from .utils import utcnow
+from ..database import Base
+from ..utils import utcnow
 
 
 class MeetingType(str, enum.Enum):

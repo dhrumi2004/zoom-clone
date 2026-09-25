@@ -4,8 +4,8 @@ from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, computed_field, field_validator
 
-from .config import FRONTEND_URL
-from .models import MeetingStatus, MeetingType, ParticipantRole
+from ..config import FRONTEND_URL
+from ..models import MeetingStatus, MeetingType, ParticipantRole
 
 
 def _to_utc_iso(value: datetime) -> str:

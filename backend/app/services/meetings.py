@@ -1,5 +1,5 @@
 """Meeting business logic. Routers stay thin and call these functions."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import func, or_, select
@@ -142,6 +142,19 @@ def list_recent(db: Session, user: User) -> List[Meeting]:
             )
             .order_by(Meeting.ended_at.desc())
             .limit(RECENT_LIMIT)
+            .options(selectinload(Meeting.host), selectinload(Meeting.settings), selectinload(Meeting.participants))
+        ).all()
+    )
+
+
+def list_in_range(db: Session, user: User, start: datetime, end: datetime) -> List[Meeting]:
+    """Calendar: the user's meetings that start (or started) between `start` and `end` (naive UTC)."""
+    starts_at = func.coalesce(Meeting.scheduled_start, Meeting.started_at)
+    return list(
+        db.scalars(
+            select(Meeting)
+            .where(Meeting.host_id == user.id, starts_at >= start, starts_at < end)
+            .order_by(starts_at)
             .options(selectinload(Meeting.host), selectinload(Meeting.settings), selectinload(Meeting.participants))
         ).all()
     )

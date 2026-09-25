@@ -1,7 +1,8 @@
 """HTTP layer for meetings. Business rules live in services/meetings.py."""
+from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -33,6 +34,20 @@ def upcoming(db: Session = Depends(get_db), user: User = Depends(get_current_use
 @router.get("/recent", response_model=List[MeetingOut])
 def recent(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> List[Meeting]:
     return service.list_recent(db, user)
+
+
+def _naive_utc(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+
+@router.get("/calendar", response_model=List[MeetingOut])
+def calendar(
+    start: datetime = Query(..., description="Range start (ISO, any timezone)"),
+    end: datetime = Query(..., description="Range end (ISO, any timezone)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> List[Meeting]:
+    return service.list_in_range(db, user, _naive_utc(start), _naive_utc(end))
 
 
 @router.post("/instant", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)

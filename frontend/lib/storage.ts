@@ -18,10 +18,15 @@ export const session = {
   set: (key: string, value: string) => safe(() => sessionStorage.setItem(key, value), undefined),
 };
 
-/** Preferences remembered across visits, like Zoom's "Remember my name" and "Start with video". */
+/**
+ * Per-browser preferences: Zoom's "Remember my name" and the chosen camera/microphone
+ * (device ids differ between computers, so they don't belong in the database).
+ */
 export const prefs = {
   rememberedName: () => local.get("zoom:name"),
   setRememberedName: (name: string | null) => (name ? local.set("zoom:name", name) : local.remove("zoom:name")),
-  startWithVideo: () => local.get("zoom:startWithVideo") !== "0",
-  setStartWithVideo: (on: boolean) => local.set("zoom:startWithVideo", on ? "1" : "0"),
+  cameraId: () => local.get("zoom:cameraId"),
+  setCameraId: (id: string) => local.set("zoom:cameraId", id),
+  micId: () => local.get("zoom:micId"),
+  setMicId: (id: string) => local.set("zoom:micId", id),
 };

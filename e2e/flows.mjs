@@ -1,13 +1,13 @@
 import puppeteer from "puppeteer-core";
 const SP = process.argv[2];
-// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
-const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
+import { API, APP, signIn } from "./lib.mjs"; // APP_URL / API_URL env vars point the tests at a deployment
 const browser = await puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1440, height: 900 },
   args: ["--disable-features=AudioServiceOutOfProcess"],
 });
 const page = await browser.newPage();
+const HOST = await signIn(page, "dhrumi@zoomclone.dev");
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
@@ -29,7 +29,7 @@ await page.click('button[aria-label="Join"]'); await page.waitForSelector("#join
 await page.type("#join-id", "1111111111"); await clickText("Join");
 await waitText("not valid"); ok(2, "invalid meeting ID rejected");
 
-const live = await (await fetch(`${API}/api/meetings/instant`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
+const live = await (await HOST.api("/api/meetings/instant", { method: "POST", body: "{}" })).json();
 await fill("#join-id", live.meeting_code.replace(/(\d{3})(\d{3})/, "$1 $2 "));
 await fill("#join-name", "Test Guest");
 await clickText("Join"); await page.waitForSelector("#join-passcode"); ok(3, "passcode step shown for spaced meeting ID");

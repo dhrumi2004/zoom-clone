@@ -1,17 +1,25 @@
 """Shared FastAPI dependencies."""
-from fastapi import Depends
-from sqlalchemy import select
+from typing import Optional
+
+from fastapi import Depends, Header
 from sqlalchemy.orm import Session
 
-from .config import DEFAULT_USER_EMAIL
 from .database import get_db
 from .exceptions import AppError
 from .models import User
+from .services.auth import user_for_token
 
 
-def get_current_user(db: Session = Depends(get_db)) -> User:
-    """No login in this app: the seeded default user is always the signed-in user."""
-    user = db.scalar(select(User).where(User.email == DEFAULT_USER_EMAIL))
+def get_token(authorization: Optional[str] = Header(default=None)) -> str:
+    """The session token from "Authorization: Bearer <token>"."""
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    raise AppError(401, "not_authenticated", "Please sign in to continue.")
+
+
+def get_current_user(token: str = Depends(get_token), db: Session = Depends(get_db)) -> User:
+    """The signed-in user. Every protected endpoint depends on this."""
+    user = user_for_token(db, token)
     if user is None:
-        raise AppError(500, "no_default_user", "Default user missing. Run: python -m app.seed --reset")
+        raise AppError(401, "not_authenticated", "Your session has expired. Please sign in again.")
     return user

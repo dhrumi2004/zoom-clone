@@ -70,10 +70,28 @@ class User(Base):
     avatar_color: Mapped[str] = mapped_column(String(7))
     # Zoom's "Personal Meeting ID" (PMI)
     personal_meeting_id: Mapped[str] = mapped_column(String(11), unique=True)
+    # "pbkdf2_sha256$<iterations>$<salt>$<hash>" (see security.py); never the plain password
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     hosted_meetings: Mapped[List["Meeting"]] = relationship(back_populates="host", cascade="all, delete-orphan")
     participations: Mapped[List["Participant"]] = relationship(back_populates="user")
+    sessions: Mapped[List["AuthSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class AuthSession(Base):
+    """A signed-in browser. The browser keeps the random token; we store only its SHA-256,
+    so a leaked database can't be used to log in. Signing out deletes the row."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+    user: Mapped["User"] = relationship(back_populates="sessions")
 
 
 class Meeting(Base):

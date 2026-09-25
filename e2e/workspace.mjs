@@ -1,14 +1,14 @@
 // Team Chat, Mail, Calendar, Docs, Whiteboards, Contacts, Apps, Settings (one browser, fresh database).
 import puppeteer from "puppeteer-core";
 const OUT = process.argv[2] ?? ".";
-// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
-const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
+import { API, APP, signIn } from "./lib.mjs"; // APP_URL / API_URL env vars point the tests at a deployment
 const browser = await puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1366, height: 820 },
   args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--disable-features=AudioServiceOutOfProcess"],
 });
 const page = await browser.newPage();
+const ME = await signIn(page, "dhrumi@zoomclone.dev");
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => m.type() === "error" && !m.text().includes("Failed to load resource") && errors.push(m.text()));
@@ -21,7 +21,7 @@ const click = async (t) => {
 };
 const ok = (n, msg) => console.log(`${n} ✓ ${msg}`);
 const shot = (name) => page.screenshot({ path: `${OUT}/ws-${name}.png` });
-const get = (path) => fetch(API + path).then((r) => r.json());
+const get = (path) => ME.api(path).then((r) => r.json());
 
 // 1. Every top-bar tab opens a working page
 await page.goto(APP); await waitText("Upcoming meetings");
@@ -109,7 +109,7 @@ ok(6, `whiteboard: drew ${JSON.parse(board.data).length} strokes, saved; undo ->
 await page.goto(`${APP}/contacts`); await waitText("Priya Patel");
 await (await page.waitForSelector(`::-p-xpath(//aside//button[.//span[normalize-space()="Sneha Iyer"]])`)).click();
 await waitText("UX Designer"); await click("Star");
-await page.waitForFunction(async (api) => (await (await fetch(api + "/api/contacts")).json()).find((c) => c.name === "Sneha Iyer").is_favorite, {}, API);
+await page.waitForFunction(async (api) => (await (await fetch(api + "/api/contacts", { headers: { Authorization: `Bearer ${localStorage.getItem("zoom:token")}` } })).json()).find((c) => c.name === "Sneha Iyer").is_favorite, {}, API);
 await shot("contacts");
 await click("Chat"); await page.waitForFunction(() => location.pathname === "/chat" && location.search.startsWith("?c="));
 await waitText("Sneha Iyer");

@@ -1,0 +1,17 @@
+# Render's free plan stops the backend after ~15 idle minutes, and a restart wipes its SQLite file
+# (including accounts people created). Pinging it every 10 minutes keeps it running, so data survives
+# until the next deploy. The seeded demo accounts are recreated on every start anyway.
+name: Keep backend awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /health
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 20 --max-time 90 https://zoom-clone-api-8uvt.onrender.com/health

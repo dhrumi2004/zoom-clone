@@ -1,4 +1,4 @@
-"""Live meeting connection: ws://<host>/ws/meetings/{code}?participant_id=<id>
+"""Live meeting connection: ws://<host>/ws/meetings/{code}?participant_id=<id>&token=<session token>
 
 Flow: the client first calls POST /api/meetings/{code}/join (REST) to get a participant id,
 then opens this socket. Closing the socket counts as leaving the meeting.
@@ -22,6 +22,7 @@ from ..realtime.manager import CLOSE_INVALID, CLOSE_REPLACED, manager
 from ..realtime.session import Context, broadcast_breakout_state, enter_room, notify_hosts_waiting
 from ..services import meetings as meeting_service
 from ..services import participants as participant_service
+from ..services.auth import user_for_token
 
 router = APIRouter(tags=["realtime"])
 
@@ -31,12 +32,18 @@ def _error(exc: AppError) -> dict:
 
 
 @router.websocket("/ws/meetings/{code}")
-async def meeting_socket(ws: WebSocket, code: str, participant_id: int) -> None:
+async def meeting_socket(ws: WebSocket, code: str, participant_id: int, token: str = "") -> None:
     await ws.accept()
 
     with SessionLocal() as db:
         try:
+            # Browsers can't send headers on a WebSocket, so the session token comes in the URL.
+            user = user_for_token(db, token)
+            if user is None:
+                raise AppError(401, "not_authenticated", "Please sign in to join this meeting.")
             participant = participant_service.get_active_participant(db, code, participant_id)
+            if participant.user_id != user.id:
+                raise AppError(403, "not_your_seat", "This participant belongs to another account.")
         except AppError as exc:
             await ws.send_json(_error(exc))
             await ws.close(code=CLOSE_INVALID)

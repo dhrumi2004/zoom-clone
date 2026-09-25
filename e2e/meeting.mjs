@@ -1,7 +1,6 @@
 import puppeteer from "puppeteer-core";
 const SP = process.argv[2];
-// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
-const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
+import { API, APP, signIn } from "./lib.mjs"; // APP_URL / API_URL env vars point the tests at a deployment
 const launch = () => puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1280, height: 800 },
@@ -9,6 +8,9 @@ const launch = () => puppeteer.launch({
 });
 const [hb, gb] = await Promise.all([launch(), launch()]);   // two separate browsers = two different people
 const host = await hb.newPage(), guest = await gb.newPage();
+// Two different accounts: the host and a guest
+const HOST = await signIn(host, "dhrumi@zoomclone.dev");
+await signIn(guest, "aarav@zoomclone.dev");
 const errors = [];
 for (const [who, p] of [["host", host], ["guest", guest]]) {
   p.on("pageerror", (e) => errors.push(`${who}: ${e.message}`));
@@ -31,7 +33,7 @@ await clickText(host, "Start"); await waitText(host, "Participants"); await wait
 ok(2, `host is in the room (${code})`);
 
 // Guest: invite link -> name -> preview -> Join
-const details = await (await fetch(`${API}/api/meetings/${code}/details`)).json();
+const details = await (await HOST.api(`/api/meetings/${code}/details`)).json();
 await guest.goto(details.invite_link); await guest.waitForSelector("#join-name");
 await guest.locator("#join-name").fill("Guest Tester");
 await clickText(guest, "Join"); await guest.waitForFunction(() => location.pathname.startsWith("/meeting/"));
@@ -78,7 +80,7 @@ try {
 await clickText(host, "End"); await clickText(host, "End meeting for all");
 await waitText(guest, "ended by host"); await host.waitForFunction(() => location.pathname === "/", { timeout: 8000 });
 ok(12, "End meeting for all: guest sees end screen, host returns home");
-const status = (await (await fetch(`${API}/api/meetings/${code}`)).json()).status;
+const status = (await (await HOST.api(`/api/meetings/${code}`)).json()).status;
 ok(13, `meeting status in database: ${status}`);
 
 console.log(errors.length ? "BROWSER ERRORS:\n" + errors.join("\n") : "no browser errors");

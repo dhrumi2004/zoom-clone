@@ -6,15 +6,25 @@ import { useCallback, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { api } from "@/lib/api";
+import { clearToken } from "@/lib/auth";
 import { formatMeetingCode } from "@/lib/format";
 
-/** Avatar button + dropdown card (name, email, status, settings). Sign out is a placeholder: no auth in this app. */
+/** Avatar button + dropdown card (name, email, status, settings, sign out). */
 export function ProfileMenu() {
   const { user } = useCurrentUser();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useClickOutside(ref, close, open);
+
+  const signOut = async () => {
+    await api.logout().catch(() => {}); // ends the session on the server
+    clearToken();
+    // A full reload (not router.push) on purpose: it clears everything cached for this account.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign("/login");
+  };
 
   if (!user) return <span className="size-9 animate-pulse rounded-[10px] bg-surface-hover" />;
 
@@ -65,7 +75,9 @@ export function ProfileMenu() {
           <MenuItem icon={CircleHelp} label="Help" />
 
           <MenuDivider />
-          <MenuItem icon={LogOut} label="Sign out" muted />
+          <button type="button" role="menuitem" onClick={signOut} className="block w-full text-left">
+            <MenuItem icon={LogOut} label="Sign out" />
+          </button>
         </div>
       )}
     </div>

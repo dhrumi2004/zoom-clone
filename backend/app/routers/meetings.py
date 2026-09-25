@@ -67,7 +67,7 @@ def schedule(
 
 @router.get("/{code}", response_model=MeetingPublic)
 def get_meeting(code: str, db: Session = Depends(get_db)) -> Meeting:
-    """Used by the Join screen to check the meeting exists before asking for a name."""
+    """Public (no sign-in): an invite link shows the meeting's title before asking you to sign in."""
     return service.get_meeting_or_404(db, code)
 
 
@@ -96,7 +96,9 @@ def delete_meeting(code: str, db: Session = Depends(get_db), user: User = Depend
 
 
 @router.post("/{code}/verify", response_model=MeetingPublic)
-def verify(code: str, data: VerifyRequest, db: Session = Depends(get_db)) -> Meeting:
+def verify(
+    code: str, data: VerifyRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+) -> Meeting:
     """Check the meeting exists, hasn't ended and the passcode is right, before showing the pre-join screen."""
     return service.verify_join(db, code, data.passcode, locked=manager.is_locked(service.normalize_code(code)))
 
@@ -111,7 +113,10 @@ def join(
 
 
 @router.post("/{code}/leave", response_model=MeetingPublic)
-def leave(code: str, data: LeaveRequest, db: Session = Depends(get_db)) -> Meeting:
+def leave(
+    code: str, data: LeaveRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> Meeting:
+    service.get_own_participant(db, code, data.participant_id, user)
     return service.leave_meeting(db, code, data.participant_id)
 
 
@@ -121,5 +126,5 @@ def end(code: str, db: Session = Depends(get_db), user: User = Depends(get_curre
 
 
 @router.get("/{code}/participants", response_model=ParticipantList)
-def participants(code: str, db: Session = Depends(get_db)) -> dict:
+def participants(code: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)) -> dict:
     return {"participants": service.list_active_participants(db, code)}

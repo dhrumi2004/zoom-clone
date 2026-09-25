@@ -2,8 +2,7 @@
 // recording, background blur, device menu, timer, hide self view, PMI and recurring meetings.
 import puppeteer from "puppeteer-core";
 const OUT = process.argv[2] ?? ".";
-// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
-const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
+import { API, APP, signIn } from "./lib.mjs"; // APP_URL / API_URL env vars point the tests at a deployment
 const launch = () => puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1440, height: 860 },
@@ -14,6 +13,10 @@ const [hb, gb] = await Promise.all([launch(), launch()]);
 // HARD_TIMEOUT: never hang forever
 setTimeout(() => { console.log("TIMEOUT: test took too long"); process.exit(2); }, 240_000).unref();
 const host = await hb.newPage(), guest = await gb.newPage();
+// Host and guest are different accounts; a third account tries to join the locked meeting
+const HOST = await signIn(host, "dhrumi@zoomclone.dev");
+await signIn(guest, "aarav@zoomclone.dev");
+const THIRD = await signIn(null, "priya@zoomclone.dev");
 const errors = [];
 for (const [who, p] of [["host", host], ["guest", guest]]) {
   p.on("pageerror", (e) => errors.push(`${who}: ${e.message}`));
@@ -52,10 +55,10 @@ const skip = (n, msg) => console.log(`${n} – ${msg}`);
 await host.goto(APP); await host.waitForSelector('button[aria-label="New meeting"]'); await host.click('button[aria-label="New meeting"]');
 await host.waitForFunction(() => location.pathname.startsWith("/meeting/")); const code = host.url().split("/meeting/")[1];
 await click(host, "Start"); await waitText(host, "(You)");
-const d = await (await fetch(`${API}/api/meetings/${code}/details`)).json();
+const d = await (await HOST.api(`/api/meetings/${code}/details`)).json();
 await guest.goto(d.invite_link); await guest.waitForSelector("#join-name"); await guest.locator("#join-name").fill("Guest Tester");
 await click(guest, "Join"); await guest.waitForFunction(() => location.pathname.startsWith("/meeting/")); await click(guest, "Join");
-const hostName = (await (await fetch(`${API}/api/users/me`)).json()).name; // other suites may rename the user
+const hostName = (await (await HOST.api("/api/users/me")).json()).name; // other suites may rename the user
 await waitText(host, "Guest Tester"); await waitText(guest, hostName);
 ok(1, "host and guest in the meeting");
 
@@ -95,7 +98,7 @@ const guestItems = await guest.$$eval('[role="menu"] button', (bs) => bs.map((b)
 await guest.keyboard.press("Escape");
 await (await host.waitForSelector(`::-p-xpath(//label[contains(., "Lock meeting")]//input)`)).click();
 await host.waitForSelector('[aria-label="Meeting locked"]');
-const lockedJoin = await fetch(`${API}/api/meetings/${code}/join`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ display_name: "Late", passcode: d.passcode }) });
+const lockedJoin = await THIRD.api(`/api/meetings/${code}/join`, { method: "POST", body: JSON.stringify({ display_name: "Late", passcode: d.passcode }) });
 await (await host.waitForSelector(`::-p-xpath(//label[contains(., "Lock meeting")]//input)`)).click();
 await (await host.waitForSelector(`::-p-xpath(//label[contains(., "Rename themselves")]//input)`)).click();
 await host.keyboard.press("Escape"); await host.mouse.click(700, 300);
@@ -103,7 +106,7 @@ ok(7, `security: rename hidden for guest (${!guestItems.includes("Rename")}), lo
 
 // Private chat
 await click(guest, "Chat"); await guest.waitForSelector('textarea[aria-label="Chat message"]');
-await guest.select("form select", String((await (await fetch(`${API}/api/meetings/${code}/participants`)).json()).participants.find((p) => p.role === "host").id));
+await guest.select("form select", String((await (await HOST.api(`/api/meetings/${code}/participants`)).json()).participants.find((p) => p.role === "host").id));
 await guest.type('textarea[aria-label="Chat message"]', "psst, private"); await guest.keyboard.press("Enter");
 await click(host, "Chat"); await waitText(host, "psst, private"); await waitText(host, "(Direct Message)");
 await host.screenshot({ path: `${OUT}/extras-chat.png` });
@@ -166,8 +169,8 @@ try {
 } catch { skip(14, "headless Chrome can't capture the tab for recording (works in normal Chrome)"); await host.mouse.click(700, 300); }
 
 // PMI + recurring (REST level, UI covered by the Schedule form)
-const pmi = await (await fetch(`${API}/api/meetings/instant`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ use_pmi: true }) })).json();
-const me = await (await fetch(`${API}/api/users/me`)).json();
+const pmi = await (await HOST.api("/api/meetings/instant", { method: "POST", body: JSON.stringify({ use_pmi: true }) })).json();
+const me = await (await HOST.api("/api/users/me")).json();
 ok(15, `PMI meeting uses the Personal Meeting ID (${pmi.meeting_code === me.personal_meeting_id})`);
 
 await click(host, "End"); await click(host, "End meeting for all"); await waitText(guest, "ended by host");

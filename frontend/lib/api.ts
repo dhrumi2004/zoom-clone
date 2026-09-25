@@ -1,4 +1,5 @@
 /** All HTTP calls to the FastAPI backend live here, so components never build URLs themselves. */
+import { clearToken, getToken, loginUrl } from "./auth";
 import { API_URL } from "./config";
 import type {
   JoinMeetingInput,
@@ -38,18 +39,29 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init?.headers,
+      },
     });
   } catch {
-    throw new ApiError(0, "network_error", "Can't reach the server. Is the backend running?");
+    throw new ApiError(0, "network_error", "Can't reach the server. It may be waking up; please try again in a moment.");
   }
 
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
+  // Signed out or session expired: go to the sign-in page, then come back here afterwards.
+  if (res.status === 401 && body?.code === "not_authenticated") {
+    clearToken();
+    const onAuthPage = ["/login", "/signup"].some((p) => window.location.pathname.startsWith(p));
+    if (!onAuthPage) window.location.assign(loginUrl(!!token));
+  }
   if (!res.ok) {
     // AppError -> {code, detail: string}; FastAPI validation -> {detail: [{msg}]}
     const detail = Array.isArray(body?.detail)
@@ -65,7 +77,17 @@ const post = <T>(path: string, data?: unknown) =>
 const patch = <T>(path: string, data: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(data) });
 const del = <T = void>(path: string) => request<T>(path, { method: "DELETE" });
 
+export interface AuthResult {
+  token: string;
+  user: User;
+}
+
 export const api = {
+  signup: (name: string, email: string, password: string) =>
+    post<AuthResult>("/api/auth/signup", { name, email, password }),
+  login: (email: string, password: string) => post<AuthResult>("/api/auth/login", { email, password }),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+
   getMe: () => request<User>("/api/users/me"),
 
   getUpcoming: () => request<Meeting[]>("/api/meetings/upcoming"),

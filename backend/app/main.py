@@ -9,7 +9,7 @@ from .config import CORS_ORIGIN_REGEX, CORS_ORIGINS
 from .database import Base, SessionLocal, engine
 from .exceptions import register_exception_handlers
 from .migrations import upgrade as upgrade_schema
-from .routers import apps, contacts, documents, mail, meetings, team_chat, users, ws
+from .routers import apps, auth, contacts, documents, mail, meetings, team_chat, users, ws
 from .seed import seed_if_empty
 
 
@@ -35,6 +35,7 @@ app.add_middleware(
 )
 
 register_exception_handlers(app)
+app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(meetings.router)
 app.include_router(ws.router)

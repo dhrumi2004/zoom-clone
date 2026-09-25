@@ -1,4 +1,4 @@
-"""Mail: the signed-in user's mailbox. Sending stores a copy in Sent (and in the Inbox if sent to yourself)."""
+"""Mail: each user's mailbox. Sending stores a copy in your Sent folder and in the Inbox of every recipient with an account."""
 from typing import List, Optional
 
 from sqlalchemy import func, or_, select
@@ -49,8 +49,9 @@ def send_email(db: Session, me: User, data: EmailCreate) -> Email:
     )
     sent = Email(owner_id=me.id, folder=MailFolder.SENT, is_read=True, **common)
     db.add(sent)
-    if me.email.lower() in recipients:
-        db.add(Email(owner_id=me.id, folder=MailFolder.INBOX, is_read=False, **common))
+    # Recipients with an account here get it in their Inbox (addresses outside the app are only in Sent).
+    for user in db.scalars(select(User).where(func.lower(User.email).in_(recipients))).all():
+        db.add(Email(owner_id=user.id, folder=MailFolder.INBOX, is_read=False, **common))
     db.commit()
     return sent
 

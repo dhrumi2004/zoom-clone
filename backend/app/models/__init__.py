@@ -1,5 +1,6 @@
 """All ORM models. Import from `app.models` (e.g. `from ..models import Meeting`)."""
 from .core import (  # noqa: F401
+    AuthSession,
     ChatMessage,
     Meeting,
     MeetingSettings,

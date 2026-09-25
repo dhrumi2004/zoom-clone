@@ -8,6 +8,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 ADDED_COLUMNS = {
+    "users": [("password_hash", "VARCHAR(255)")],
     "meeting_settings": [
         ("allow_unmute", "BOOLEAN NOT NULL DEFAULT 1"),
         ("allow_rename", "BOOLEAN NOT NULL DEFAULT 1"),

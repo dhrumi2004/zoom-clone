@@ -20,6 +20,12 @@ CORS_ORIGINS = sorted({
 # Optional regex for extra origins, e.g. every Vercel preview deploy: https://.*\.vercel\.app
 CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX") or None
 
-# No auth in this app: every request acts as this seeded default user.
+# The seeded demo account that owns the sample meetings, chats, mail and docs.
 DEFAULT_USER_EMAIL = "dhrumi@zoomclone.dev"
 DEFAULT_USER_NAME = "Dhrumi Upadhyay"
+
+# Password of every seeded demo account (shown on the sign-in page so reviewers can try it).
+DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "zoom1234")
+
+# How long a sign-in lasts before the user must sign in again.
+SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))

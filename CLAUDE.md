@@ -15,7 +15,7 @@ SDE fullstack assignment: a Zoom web app clone. UI/UX must look like real Zoom. 
   - Next 16: `params`/`searchParams` are Promises (use `use(params)` in client pages or `PageProps<'/route'>`); `middleware` is now `proxy`; read `frontend/node_modules/next/dist/docs/` when unsure
 - Real video: WebRTC mesh, with signaling over FastAPI WebSockets.
 - Deploy: Vercel (frontend) + Render (backend). The DB auto-creates and seeds on startup.
-- No auth: every request acts as the seeded default user (`config.DEFAULT_USER_EMAIL`).
+- **Auth required** (added after Step 10): see the Authentication section.
 
 ## Backend layout
 - `app/config.py`: env settings (DATABASE_URL, FRONTEND_URL, CORS_ORIGINS, default user)
@@ -116,6 +116,12 @@ SDE fullstack assignment: a Zoom web app clone. UI/UX must look like real Zoom. 
 - GitHub: https://github.com/dhrumi2004/zoom-clone
 - The user's API keys live in ~/.render-key and ~/.vercel-token (outside the repo). Never print or commit them
 - e2e against production: `APP_URL=… API_URL=… node run.mjs meeting meeting-extras`
+
+## Authentication
+- Backend: `security.py` (PBKDF2-SHA256 hash_password/verify_password, new_session_token, hash_token), `models.core.AuthSession` (token_hash = sha256, expires_at), users.password_hash (added by migrations.py), `services/auth.py` (signup adds settings/profile/#general membership, login, logout, user_for_token), `routers/auth.py` (/api/auth/signup|login|logout), `dependencies.get_current_user` reads `Authorization: Bearer`. Public: /health, signup/login, GET /api/meetings/{code}. WS: `?token=`, and the participant must belong to that user (`not_your_seat`). join: host = meeting.host_id == user.id; participant.user_id is always set. /leave checks ownership. Mail delivers to recipients who have accounts. Seeded demo accounts use `config.DEMO_PASSWORD` ("zoom1234"); `seed.ensure_demo_passwords` fixes older DBs
+- Frontend: `lib/auth.ts` (token in localStorage `zoom:token`, useAuthToken, safeNext, loginUrl); `lib/api.ts` adds the header, and on 401 not_authenticated clears the token and goes to /login?next=…; `components/auth/` (AuthLayout, LoginForm with demo buttons, SignupForm with live password rules, PasswordInput, RequireAuth / RedirectIfSignedIn). RequireAuth wraps `(main)/layout`, `/meeting/[code]`, `/j/[code]`. Sign in/up/out use full page loads so no other account's cached data survives
+- `.github/workflows/keep-backend-awake.yml` pings Render every 10 min
+- e2e: `lib.mjs` signIn(page, email) → {token, api}; host = dhrumi, guests = aarav / priya; `auth-flow.mjs` covers the multi-account invite scenario
 
 ## Progress
 - [x] Step 1: backend scaffold, models, seed, /health

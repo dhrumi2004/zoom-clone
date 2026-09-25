@@ -6,7 +6,9 @@ A working clone of the Zoom Workplace web app. You can start instant meetings, j
 - **Backend API docs (Swagger):** https://zoom-clone-api-8uvt.onrender.com/docs
 - **Source code:** https://github.com/dhrumi2004/zoom-clone
 
-> The backend runs on Render's free plan, which sleeps when idle: the **first** page load can take up to a minute while it wakes up.
+> **Sign in:** create an account with **Sign up free**, or use a demo account: `dhrumi@zoomclone.dev`, `aarav@zoomclone.dev` or `priya@zoomclone.dev`, password **`zoom1234`**. The sign-in page has one-click buttons for them. To try a meeting with several people, sign in as different accounts in different browsers (or a normal + an incognito window).
+>
+> The backend runs on Render's free plan: if it was idle, the first page load can take up to a minute.
 
 | Home | Meeting (chat) |
 |---|---|
@@ -73,11 +75,18 @@ Every tab in the top bar is a working, database-backed section:
 | **Recurring meetings** | Daily / weekly / monthly with an optional end date; one Meeting ID, shown on the calendar as occurrences |
 | **Email invitation** | Opens Zoom Mail with the invitation filled in |
 
+### Accounts (sign up / sign in)
+- **Sign up** (name, email, password with live rules), **Sign in**, **Sign out**; every page and API requires sign-in
+- Passwords are hashed with **PBKDF2-SHA256** (random salt, 200,000 iterations); sessions are random tokens stored **only as SHA-256 hashes** in `auth_sessions`, valid for 30 days, deleted on sign-out
+- **Invite links while signed out** send you to Sign In (or Sign Up) and then **straight back to the meeting**
+- **The meeting's owner is its host** however they open it; everyone else joins as a participant under their own account. The live connection checks your session, so nobody can take over another person's seat
+- Each account has its own meetings, recent meetings (hosted **or attended**), settings, docs and whiteboards; **Mail and Team Chat reach other accounts**, and new accounts join #general
+
 ### Bonus
 - **Host controls:** Mute All, mute one person, Ask to Unmute (hosts can't force a mic on, same as Zoom), Remove participant, **End meeting for all**
 - **Waiting room:** guests wait until the host clicks **Admit** / **Admit all** / **Remove**
 - **Responsive:** desktop, tablet and phone. On phones the tabs move to a bottom bar, like Zoom's mobile app, and the toolbar shows icons only
-- Login/Signup was **not** built: the brief says to assume a default signed-in user
+- **User authentication (Login/Signup)** is built as well (see Accounts above)
 
 ---
 
@@ -124,6 +133,7 @@ flowchart LR
 ```mermaid
 erDiagram
   users ||--o{ meetings : hosts
+  users ||--o{ auth_sessions : "signs in"
   meetings ||--|| meeting_settings : has
   meetings ||--o{ participants : "join sessions"
   users |o--o{ participants : "is (null for guests)"
@@ -150,7 +160,14 @@ erDiagram
     string email UK
     string avatar_color
     string personal_meeting_id UK
+    string password_hash "PBKDF2, never the password"
     datetime created_at
+  }
+  auth_sessions {
+    int id PK
+    int user_id FK
+    string token_hash UK "SHA-256 of the browser token"
+    datetime expires_at
   }
   meetings {
     int id PK
@@ -241,9 +258,13 @@ The workspace tables (details in `backend/app/models/workspace.py`):
 
 Interactive docs: `http://127.0.0.1:8000/docs`
 
+All endpoints except `/health`, `POST /api/auth/signup|login` and `GET /api/meetings/{code}` (the invite page's title) need `Authorization: Bearer <token>`.
+
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/users/me` | The signed-in (default) user |
+| POST | `/api/auth/signup` · `/api/auth/login` | Create an account / sign in → `{token, user}` |
+| POST | `/api/auth/logout` | End this session |
+| GET | `/api/users/me` | The signed-in user |
 | GET | `/api/meetings/upcoming` | Live meetings first, then scheduled ones that haven't finished |
 | GET | `/api/meetings/recent` | Ended meetings, newest first |
 | POST | `/api/meetings/instant` | Create and start an instant meeting |
@@ -340,9 +361,10 @@ With both servers running on a **fresh** database (or against a deployment with 
 cd e2e && npm install && npm run all   # runs every file with a time limit and cleans up its browsers
 ```
 - `flows.mjs`: join validation (bad ID, passcode step, wrong passcode), scheduling, invite links, instant meetings
-- `meeting.mjs`: two browsers: video/audio both ways, mute, camera toggle, reactions, screen share, end for all
-- `host-controls.mjs`: three browsers: waiting room admit/remove, chat both ways, mute, ask to unmute, mute all, remove
+- `meeting.mjs`: two browsers (two accounts): video/audio both ways, mute, camera toggle, reactions, screen share, end for all
+- `host-controls.mjs`: three browsers (three accounts): waiting room admit/remove, chat both ways, mute, ask to unmute, mute all, remove
 - `meeting-extras.mjs`: co-host, rename, pin/spotlight, security (lock, rename/unmute permissions), private chat, stop/ask video, polls, breakout rooms, hide self view, device menus, background blur, recording, PMI
+- `auth-flow.mjs`: sign-up validation, sign in/out, protected pages, then **3 accounts**: a new user schedules a meeting, a signed-out person opens the invite link → signs up → lands back in the meeting, a demo account joins, and all three share one call (host controls + chat across accounts)
 - `workspace.mjs`: every top-bar section: Team Chat, Mail, Calendar, Docs (autosave + reload), Whiteboards (draw, save, undo), Contacts, Apps, Settings (profile, defaults, camera preview)
 
 ---
@@ -368,13 +390,14 @@ cd e2e && npm install && npm run all   # runs every file with a time limit and c
 
 ## Assumptions and limitations
 
-- **No authentication:** as the brief allows, every request acts as the seeded default user. Because of that, "host" means **started from the dashboard** (New meeting / Start). Anyone opening an invite link or typing a Meeting ID joins as a guest and needs the passcode (invite links include it, like Zoom's `?pwd=`).
-- **SQLite on Render's free plan is temporary:** the disk resets on redeploy or restart, and the app re-seeds itself on startup. Upcoming seed meetings are dated relative to startup, so the dashboard always has data. For permanent data, attach a Render disk or point `DATABASE_URL` at another database.
+- **Sign-in is required.** Demo accounts (password `zoom1234`) are seeded for reviewers. The host of a meeting is the account that created it; anyone else joins as a participant and needs the passcode (invite links include it, like Zoom's `?pwd=`). Guests can join a scheduled meeting before the host arrives (Zoom's "Allow participants to join anytime").
+- **Session token in localStorage** (sent as a Bearer header) rather than a cookie, because the site (Vercel) and API (Render) are on different domains, where browsers block third-party cookies. There's no email verification or password reset (no email service); the demo accounts cover reviewing.
+- **SQLite on Render's free plan is temporary:** the disk resets when the service restarts or redeploys, and the app re-seeds itself (demo accounts, sample data). A GitHub Action (`.github/workflows/keep-backend-awake.yml`) pings the backend every 10 minutes so it doesn't idle-restart, which keeps accounts created on the live site until the next deploy. For permanent data, attach a Render disk or point `DATABASE_URL` at another database.
 - **Render free instances sleep** after inactivity, so the first request can take ~30–60 s.
 - **Mesh WebRTC** suits small meetings (about 2–6 people). Larger meetings would need a media server (SFU), which is what Zoom itself uses.
 - **Live meeting state** (who is connected, waiting room, raised hands, screen sharer) is kept **in the server's memory**, so the backend runs as **one worker**. Scaling out would move this into Redis pub/sub.
 - **Camera and mic require HTTPS or localhost** (a browser rule). To test from a phone, use the deployed HTTPS site.
-- **Workspace sections are single-user**, like the rest of the app: Team Chat and Mail show seeded messages from colleagues, and what you send is stored, but no real person receives it (there's no login). Team Chat refreshes every few seconds instead of using WebSockets. Mail stays inside the app (no SMTP).
+- **Team Chat and Mail work between accounts** in this app (seeded colleagues are demo accounts too). Team Chat refreshes every few seconds instead of using WebSockets. Mail stays inside the app (no SMTP): addresses without an account here only appear in your Sent folder.
 - **Not possible in a browser clone:** phone dial-in, cloud recording on Zoom's servers, remote control of another computer, Zoom Rooms hardware. **Not built:** AI Companion (needs a paid AI service), webinars/events, virtual background images (blur is built), annotation on shared screens, file sharing in chat, and real-time co-editing of docs and whiteboards.
 - **Recordings** are saved to your computer (Zoom's "Record to this computer"); choose "This tab" when the browser asks what to record.
 - **Captions** transcribe each person in their own browser, so they work for people using Chrome, Edge or Safari (Firefox has no speech recognition).

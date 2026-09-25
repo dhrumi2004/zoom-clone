@@ -6,6 +6,7 @@
  * Connection flow: the newcomer gets `room_state` and sends a WebRTC offer to every peer in it;
  * the others answer when the offer arrives. The server only relays these signals.
  */
+import { getToken } from "@/lib/auth";
 import { ICE_SERVERS, WS_URL } from "@/lib/config";
 import { LocalMedia, LocalMediaState } from "./localMedia";
 import { LocalTracks, Peer, SLOT } from "./peer";
@@ -118,7 +119,9 @@ export class MeetingClient extends Store<MeetingState> {
   /** Idempotent, so React's development double-mount doesn't open two sockets. */
   connect() {
     if (this.ws) return;
-    const ws = new WebSocket(`${WS_URL}/ws/meetings/${this.code}?participant_id=${this.participantId}`);
+    // Browsers can't add headers to a WebSocket, so the session token goes in the URL (wss:// encrypts it).
+    const token = encodeURIComponent(getToken() ?? "");
+    const ws = new WebSocket(`${WS_URL}/ws/meetings/${this.code}?participant_id=${this.participantId}&token=${token}`);
     this.ws = ws;
     ws.onopen = () => {
       this.outbox.forEach((m) => ws.send(m));

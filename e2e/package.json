@@ -7,9 +7,10 @@
     "flows": "node flows.mjs .",
     "meeting": "node meeting.mjs .",
     "host-controls": "node host-controls.mjs .",
-    "all": "node run.mjs flows meeting host-controls workspace meeting-extras",
+    "all": "node run.mjs auth-flow flows meeting host-controls workspace meeting-extras",
     "workspace": "node workspace.mjs .",
-    "extras": "node meeting-extras.mjs ."
+    "extras": "node meeting-extras.mjs .",
+    "auth": "node run.mjs auth-flow"
   },
   "dependencies": {
     "puppeteer-core": "^24.0.0"

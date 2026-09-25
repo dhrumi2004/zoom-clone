@@ -231,7 +231,8 @@ def verify_join(db: Session, raw_code: str, passcode: Optional[str], locked: boo
 
 def join_meeting(db: Session, user: User, raw_code: str, data: JoinRequest, locked: bool = False) -> Participant:
     meeting = get_meeting_or_404(db, raw_code)
-    is_host = data.as_host and meeting.host_id == user.id
+    # The meeting's owner is its host, however they open it (dashboard Start, invite link or Meeting ID).
+    is_host = meeting.host_id == user.id
 
     if data.as_host and not is_host:
         raise AppError(403, "not_host", "Only the host can start this meeting.")
@@ -247,7 +248,7 @@ def join_meeting(db: Session, user: User, raw_code: str, data: JoinRequest, lock
     settings = meeting.settings
     participant = Participant(
         meeting=meeting,
-        user_id=user.id if is_host else None,
+        user_id=user.id,  # everyone is signed in now; guests keep their own account
         display_name=data.display_name,
         role=ParticipantRole.HOST if is_host else ParticipantRole.PARTICIPANT,
         joined_at=now,
@@ -275,6 +276,15 @@ def list_active_participants(db: Session, raw_code: str) -> List[Participant]:
 
 def _active_count(db: Session, meeting: Meeting) -> int:
     return db.scalar(select(func.count(Participant.id)).where(*_active_in(meeting))) or 0
+
+
+def get_own_participant(db: Session, raw_code: str, participant_id: int, user: User) -> Participant:
+    """A participant row that belongs to the signed-in user (you can only leave as yourself)."""
+    meeting = get_meeting_or_404(db, raw_code)
+    participant = db.get(Participant, participant_id)
+    if participant is None or participant.meeting_id != meeting.id or participant.user_id != user.id:
+        raise NotFoundError("Participant not found in this meeting.")
+    return participant
 
 
 def leave_meeting(db: Session, raw_code: str, participant_id: int) -> Meeting:

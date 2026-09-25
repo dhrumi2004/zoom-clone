@@ -1,7 +1,6 @@
 import puppeteer from "puppeteer-core";
 const SP = process.argv[2];
-// Point at a deployed site with APP_URL=... API_URL=... (defaults: local dev servers)
-const APP = process.env.APP_URL ?? "http://localhost:3000", API = process.env.API_URL ?? "http://127.0.0.1:8000";
+import { API, APP, signIn } from "./lib.mjs"; // APP_URL / API_URL env vars point the tests at a deployment
 const launch = () => puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true, defaultViewport: { width: 1280, height: 800 },
@@ -9,6 +8,10 @@ const launch = () => puppeteer.launch({
 });
 const [hb, gb, g2b] = await Promise.all([launch(), launch(), launch()]);
 const host = await hb.newPage(), guest = await gb.newPage(), guest2 = await g2b.newPage();
+// Three different accounts
+const HOST = await signIn(host, "dhrumi@zoomclone.dev");
+await signIn(guest, "aarav@zoomclone.dev");
+await signIn(guest2, "priya@zoomclone.dev");
 const errors = [];
 for (const [who, p] of [["host", host], ["guest", guest], ["guest2", guest2]]) {
   p.on("pageerror", (e) => errors.push(`${who}: ${e.message}`));
@@ -21,7 +24,7 @@ const clickText = async (p, t) => {
   (inDialog ?? (await p.waitForSelector(`::-p-xpath(//button${match})`, { timeout: 8000 }))).click();
 };
 const ok = (n, msg) => console.log(`${n} ✓ ${msg}`);
-const post = (path, body) => fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const post = (path, body) => HOST.api(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
 
 // A scheduled meeting with the waiting room on
 const start = new Date(Date.now() + 10 * 60_000).toISOString();

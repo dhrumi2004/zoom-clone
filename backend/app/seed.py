@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .config import DEFAULT_USER_EMAIL, DEFAULT_USER_NAME
+from .config import DEFAULT_USER_EMAIL, DEFAULT_USER_NAME, DEMO_PASSWORD
 from .database import Base, SessionLocal, engine
 from .models import (
     ChatMessage,
@@ -22,6 +22,7 @@ from .models import (
     ParticipantRole,
     User,
 )
+from .security import hash_password
 from .seed_workspace import seed_workspace_if_empty
 from .services.codes import generate_unique_meeting_code
 from .utils import AVATAR_COLORS, generate_passcode, utcnow
@@ -67,10 +68,21 @@ def _create_user(db: Session, name: str, email: str, color: str) -> User:
         email=email,
         avatar_color=color,
         personal_meeting_id=generate_unique_meeting_code(db),
+        password_hash=hash_password(DEMO_PASSWORD),
     )
     db.add(user)
     db.flush()  # makes the PMI visible to the next uniqueness check
     return user
+
+
+def ensure_demo_passwords(db: Session) -> None:
+    """Databases created before sign-in existed: give the seeded demo accounts the demo password."""
+    emails = [DEFAULT_USER_EMAIL] + [email for _, email in COLLEAGUES]
+    users = db.scalars(select(User).where(User.email.in_(emails), User.password_hash.is_(None))).all()
+    for user in users:
+        user.password_hash = hash_password(DEMO_PASSWORD)
+    if users:
+        db.commit()
 
 
 def _create_meeting(db: Session, host: User, title: str, type_: MeetingType, **fields) -> Meeting:
@@ -164,6 +176,7 @@ def seed_if_empty(db: Session) -> bool:
     if db.scalar(select(User.id).limit(1)) is None:
         seed(db)
         inserted = True
+    ensure_demo_passwords(db)
     return seed_workspace_if_empty(db) or inserted
 
 

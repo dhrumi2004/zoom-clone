@@ -87,7 +87,9 @@ ok(6, "Sam: invite link -> sign in page -> sign up -> back to the invite -> join
 // 7. Aarav opens the same link and uses a demo account from the sign-in page
 await aarav.goto(invite); await waitPath(aarav, "^/login");
 await (await aarav.waitForSelector(`::-p-xpath(//button[contains(., "Aarav Shah")])`)).click();
-await waitPath(aarav, "^/j/"); await click(aarav, "Join"); await waitPath(aarav, "^/meeting/"); await click(aarav, "Join"); await waitText(aarav, "Participants");
+await waitPath(aarav, "^/j/");
+await aarav.waitForFunction(() => document.querySelector("#join-name")?.value === "Aarav Shah", { timeout: 30000 }); // name comes from the account
+await click(aarav, "Join"); await waitPath(aarav, "^/meeting/"); await click(aarav, "Join"); await waitText(aarav, "Participants");
 ok(7, "Aarav: same link -> demo account sign-in -> joined");
 
 // 8. Riya (the owner) joins from her dashboard and is the host

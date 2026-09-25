@@ -1,11 +1,11 @@
 """Pydantic models: the shape of API requests and responses."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, computed_field, field_validator
 
 from ..config import FRONTEND_URL
-from ..models import MeetingStatus, MeetingType, ParticipantRole
+from ..models import MeetingStatus, MeetingType, ParticipantRole, Recurrence
 
 
 def _to_utc_iso(value: datetime) -> str:
@@ -49,6 +49,8 @@ class MeetingSettingsIn(BaseModel):
     participant_video_on: bool = True
     allow_chat: bool = True
     allow_screen_share: bool = True
+    allow_unmute: bool = True
+    allow_rename: bool = True
 
 
 class MeetingSettingsOut(MeetingSettingsIn, ORMModel):
@@ -73,6 +75,8 @@ def _as_naive_utc(value: datetime) -> datetime:
 class InstantMeetingCreate(BaseModel):
     title: Optional[Title] = None  # defaults to "<name>'s Zoom Meeting"
     settings: MeetingSettingsIn = MeetingSettingsIn()
+    # Zoom's "Use my Personal Meeting ID (PMI)": the meeting code is the user's PMI
+    use_pmi: bool = False
 
 
 class ScheduledMeetingCreate(BaseModel):
@@ -82,6 +86,8 @@ class ScheduledMeetingCreate(BaseModel):
     duration_min: Duration = 60
     passcode: Optional[Passcode] = None  # generated if omitted
     settings: MeetingSettingsIn = MeetingSettingsIn()
+    recurrence: Recurrence = Recurrence.NONE
+    recurrence_end: Optional[date] = None  # last day of the series (optional)
 
     @field_validator("scheduled_start")
     @classmethod
@@ -98,6 +104,8 @@ class ScheduledMeetingUpdate(BaseModel):
     duration_min: Optional[Duration] = None
     passcode: Optional[Passcode] = None
     settings: Optional[MeetingSettingsIn] = None
+    recurrence: Optional[Recurrence] = None
+    recurrence_end: Optional[date] = None
 
     @field_validator("scheduled_start")
     @classmethod
@@ -130,6 +138,8 @@ class MeetingOut(MeetingPublic):
     ended_at: Optional[UTCDateTime] = None
     created_at: UTCDateTime
     participant_count: int = 0
+    recurrence: Recurrence = Recurrence.NONE
+    recurrence_end: Optional[date] = None
 
     @computed_field  # type: ignore[misc]
     @property
@@ -181,6 +191,8 @@ class ChatMessageOut(ORMModel):
     id: int
     participant_id: int
     sender_name: str
+    recipient_id: Optional[int] = None  # set for private messages
+    recipient_name: Optional[str] = None
     content: str
     sent_at: UTCDateTime
 

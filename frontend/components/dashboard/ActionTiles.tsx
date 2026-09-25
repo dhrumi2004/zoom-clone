@@ -5,8 +5,11 @@ import { ArrowUp, ChevronDown, Plus, Video } from "lucide-react";
 import { ReactNode, useCallback, useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/Field";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { api } from "@/lib/api";
+import { formatMeetingCode } from "@/lib/format";
+import { prefs } from "@/lib/storage";
 
 interface ActionTilesProps {
   onNewMeeting?: () => void;
@@ -89,7 +92,9 @@ function Tile({
 function NewMeetingOptions() {
   const [open, setOpen] = useState(false);
   const { data: settings, mutate } = useUserSettings();
+  const { user } = useCurrentUser();
   const withVideo = settings?.start_with_video ?? true;
+  const [usePmi, setUsePmi] = useState(() => prefs.usePmi());
   const ref = useRef<HTMLSpanElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useClickOutside(ref, close, open);
@@ -106,7 +111,7 @@ function NewMeetingOptions() {
         <ChevronDown className="size-3.5" />
       </button>
       {open && (
-        <span className="absolute top-full left-1/2 z-30 mt-2 block w-56 -translate-x-1/2 rounded-lg border border-line bg-surface p-3 text-left shadow-popover">
+        <span className="absolute top-full left-1/2 z-30 mt-2 block w-64 -translate-x-1/2 rounded-lg border border-line bg-surface p-3 text-left shadow-popover">
           <Checkbox
             checked={withVideo}
             onChange={(on) =>
@@ -117,6 +122,17 @@ function NewMeetingOptions() {
             }
             label="Start with video"
           />
+          <div className="mt-3">
+            <Checkbox
+              checked={usePmi}
+              onChange={(on) => {
+                setUsePmi(on);
+                prefs.setUsePmi(on);
+              }}
+              label="Use my Personal Meeting ID (PMI)"
+              hint={user ? formatMeetingCode(user.personal_meeting_id) : undefined}
+            />
+          </div>
         </span>
       )}
     </span>

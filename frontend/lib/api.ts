@@ -71,7 +71,8 @@ export const api = {
   getUpcoming: () => request<Meeting[]>("/api/meetings/upcoming"),
   getRecent: () => request<Meeting[]>("/api/meetings/recent"),
 
-  createInstant: (title?: string) => post<Meeting>("/api/meetings/instant", { title }),
+  createInstant: (options: { title?: string; usePmi?: boolean } = {}) =>
+    post<Meeting>("/api/meetings/instant", { title: options.title, use_pmi: !!options.usePmi }),
   schedule: (data: ScheduleMeetingInput) => post<Meeting>("/api/meetings", data),
   update: (code: string, data: Partial<ScheduleMeetingInput>) =>
     request<Meeting>(`/api/meetings/${code}`, { method: "PATCH", body: JSON.stringify(data) }),

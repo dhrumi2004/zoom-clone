@@ -29,4 +29,10 @@ export const prefs = {
   setCameraId: (id: string) => local.set("zoom:cameraId", id),
   micId: () => local.get("zoom:micId"),
   setMicId: (id: string) => local.set("zoom:micId", id),
+  speakerId: () => local.get("zoom:speakerId"),
+  setSpeakerId: (id: string) => local.set("zoom:speakerId", id),
+  usePmi: () => local.get("zoom:usePmi") === "1",
+  setUsePmi: (on: boolean) => local.set("zoom:usePmi", on ? "1" : "0"),
+  blur: () => local.get("zoom:blur") === "1",
+  setBlur: (on: boolean) => local.set("zoom:blur", on ? "1" : "0"),
 };

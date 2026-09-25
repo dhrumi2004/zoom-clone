@@ -1,5 +1,5 @@
 """Meeting business logic. Routers stay thin and call these functions."""
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import func, or_, select
@@ -13,11 +13,13 @@ from ..models import (
     MeetingType,
     Participant,
     ParticipantRole,
+    Recurrence,
     User,
 )
-from ..schemas import InstantMeetingCreate, JoinRequest, ScheduledMeetingCreate, ScheduledMeetingUpdate
+from ..schemas import InstantMeetingCreate, JoinRequest, MeetingOut, ScheduledMeetingCreate, ScheduledMeetingUpdate
 from ..utils import generate_passcode, utcnow
 from .codes import generate_unique_meeting_code
+from .recurrence import add_interval, next_occurrence_after, occurrences
 
 # Scheduling slightly in the past is allowed so a form submitted at 10:00:30 for "10:00" still works.
 SCHEDULE_GRACE = timedelta(minutes=5)
@@ -48,11 +50,19 @@ def require_owner(meeting: Meeting, user: User) -> None:
 # ---------- Create ----------
 
 def create_instant_meeting(db: Session, host: User, data: InstantMeetingCreate) -> Meeting:
-    """Instant meetings go live immediately; the host joins right after via join_meeting."""
+    """Instant meetings go live immediately; the host joins right after via join_meeting.
+    With use_pmi, the host's Personal Meeting Room (code = PMI) is reused instead of a new meeting."""
     now = utcnow()
+    if data.use_pmi:
+        room = db.scalar(select(Meeting).where(Meeting.meeting_code == host.personal_meeting_id))
+        if room is not None:
+            if room.status != MeetingStatus.LIVE:
+                room.status, room.started_at, room.ended_at = MeetingStatus.LIVE, now, None
+            db.commit()
+            return room
     meeting = Meeting(
-        meeting_code=generate_unique_meeting_code(db),
-        title=data.title or f"{host.name}'s Zoom Meeting",
+        meeting_code=host.personal_meeting_id if data.use_pmi else generate_unique_meeting_code(db),
+        title=data.title or (f"{host.name}'s Personal Meeting Room" if data.use_pmi else f"{host.name}'s Zoom Meeting"),
         host=host,
         type=MeetingType.INSTANT,
         status=MeetingStatus.LIVE,
@@ -65,9 +75,15 @@ def create_instant_meeting(db: Session, host: User, data: InstantMeetingCreate) 
     return meeting
 
 
+def _check_recurrence(start: datetime, recurrence: Recurrence, end: Optional[date]) -> None:
+    if recurrence != Recurrence.NONE and end is not None and end < start.date():
+        raise AppError(422, "bad_recurrence_end", "The end date must be on or after the first meeting.")
+
+
 def schedule_meeting(db: Session, host: User, data: ScheduledMeetingCreate) -> Meeting:
     if data.scheduled_start < utcnow() - SCHEDULE_GRACE:
         raise AppError(422, "start_in_past", "The meeting start time must be in the future.")
+    _check_recurrence(data.scheduled_start, data.recurrence, data.recurrence_end)
     meeting = Meeting(
         meeting_code=generate_unique_meeting_code(db),
         title=data.title.strip(),
@@ -79,6 +95,8 @@ def schedule_meeting(db: Session, host: User, data: ScheduledMeetingCreate) -> M
         duration_min=data.duration_min,
         passcode=data.passcode or generate_passcode(),
         settings=MeetingSettings(**data.settings.model_dump()),
+        recurrence=data.recurrence,
+        recurrence_end=data.recurrence_end if data.recurrence != Recurrence.NONE else None,
     )
     db.add(meeting)
     db.commit()
@@ -97,8 +115,11 @@ def update_scheduled_meeting(db: Session, user: User, raw_code: str, data: Sched
     if "scheduled_start" in changes and changes["scheduled_start"] < utcnow() - SCHEDULE_GRACE:
         raise AppError(422, "start_in_past", "The meeting start time must be in the future.")
     for field, value in changes.items():
-        if value is not None or field == "description":
+        if value is not None or field in ("description", "recurrence_end"):
             setattr(meeting, field, value)
+    if meeting.recurrence == Recurrence.NONE:
+        meeting.recurrence_end = None
+    _check_recurrence(meeting.scheduled_start, meeting.recurrence, meeting.recurrence_end)
     if data.settings is not None:
         for field, value in data.settings.model_dump().items():
             setattr(meeting.settings, field, value)
@@ -126,6 +147,8 @@ def list_upcoming(db: Session, user: User) -> List[Meeting]:
         .where(Meeting.host_id == user.id, Meeting.status.in_([MeetingStatus.LIVE, MeetingStatus.SCHEDULED]))
         .options(selectinload(Meeting.host), selectinload(Meeting.settings), selectinload(Meeting.participants))
     ).all()
+    if any(_roll_forward(m, now) for m in meetings):
+        db.commit()
     visible = [m for m in meetings if m.status == MeetingStatus.LIVE or (m.end_time and m.end_time > now)]
     return sorted(visible, key=lambda m: (m.status != MeetingStatus.LIVE, m.scheduled_start or m.started_at))
 
@@ -147,25 +170,50 @@ def list_recent(db: Session, user: User) -> List[Meeting]:
     )
 
 
-def list_in_range(db: Session, user: User, start: datetime, end: datetime) -> List[Meeting]:
-    """Calendar: the user's meetings that start (or started) between `start` and `end` (naive UTC)."""
+def _roll_forward(meeting: Meeting, now: datetime) -> bool:
+    """A recurring meeting whose occurrence passed moves on to the next one. Returns True if it changed."""
+    if meeting.status != MeetingStatus.SCHEDULED or meeting.recurrence == Recurrence.NONE:
+        return False
+    nxt = next_occurrence_after(meeting, now)
+    if nxt is None or nxt == meeting.scheduled_start:
+        return False
+    meeting.scheduled_start = nxt
+    return True
+
+
+def list_in_range(db: Session, user: User, start: datetime, end: datetime) -> List[dict]:
+    """Calendar: the user's meetings in [start, end), with recurring meetings expanded into occurrences."""
     starts_at = func.coalesce(Meeting.scheduled_start, Meeting.started_at)
-    return list(
-        db.scalars(
-            select(Meeting)
-            .where(Meeting.host_id == user.id, starts_at >= start, starts_at < end)
-            .order_by(starts_at)
-            .options(selectinload(Meeting.host), selectinload(Meeting.settings), selectinload(Meeting.participants))
-        ).all()
-    )
+    meetings = db.scalars(
+        select(Meeting)
+        .where(
+            Meeting.host_id == user.id,
+            starts_at < end,
+            or_(starts_at >= start, Meeting.recurrence != Recurrence.NONE),
+        )
+        .options(selectinload(Meeting.host), selectinload(Meeting.settings), selectinload(Meeting.participants))
+    ).all()
+    result = []
+    for m in meetings:
+        base = MeetingOut.model_validate(m)
+        if m.recurrence == Recurrence.NONE or m.status != MeetingStatus.SCHEDULED:
+            if (m.scheduled_start or m.started_at) and start <= (m.scheduled_start or m.started_at) < end:
+                result.append(base)
+            continue
+        for occurrence in occurrences(m, end):
+            if occurrence >= start:
+                result.append(base.model_copy(update={"scheduled_start": occurrence}))
+    return sorted(result, key=lambda m: m.scheduled_start or m.started_at)
 
 
 # ---------- Join / leave / end ----------
 
-def check_can_join(meeting: Meeting, passcode: Optional[str], is_host: bool) -> None:
-    """Guests need a meeting that hasn't ended and the right passcode. The host needs neither."""
+def check_can_join(meeting: Meeting, passcode: Optional[str], is_host: bool, locked: bool = False) -> None:
+    """Guests need a meeting that hasn't ended, isn't locked, and the right passcode. The host needs none of that."""
     if is_host:
         return
+    if locked:
+        raise AppError(423, "meeting_locked", "This meeting has been locked by the host.")
     if meeting.status == MeetingStatus.ENDED:
         raise AppError(410, "meeting_ended", "This meeting has ended.")
     if passcode != meeting.passcode:
@@ -174,20 +222,20 @@ def check_can_join(meeting: Meeting, passcode: Optional[str], is_host: bool) -> 
         raise AppError(401, "wrong_passcode", "Wrong passcode. Please try again.")
 
 
-def verify_join(db: Session, raw_code: str, passcode: Optional[str]) -> Meeting:
+def verify_join(db: Session, raw_code: str, passcode: Optional[str], locked: bool = False) -> Meeting:
     """Same checks as joining as a guest, without creating a participant (used by the Join dialog)."""
     meeting = get_meeting_or_404(db, raw_code)
-    check_can_join(meeting, passcode, is_host=False)
+    check_can_join(meeting, passcode, is_host=False, locked=locked)
     return meeting
 
 
-def join_meeting(db: Session, user: User, raw_code: str, data: JoinRequest) -> Participant:
+def join_meeting(db: Session, user: User, raw_code: str, data: JoinRequest, locked: bool = False) -> Participant:
     meeting = get_meeting_or_404(db, raw_code)
     is_host = data.as_host and meeting.host_id == user.id
 
     if data.as_host and not is_host:
         raise AppError(403, "not_host", "Only the host can start this meeting.")
-    check_can_join(meeting, data.passcode, is_host)
+    check_can_join(meeting, data.passcode, is_host, locked)
 
     now = utcnow()
     if meeting.status != MeetingStatus.LIVE:
@@ -241,8 +289,7 @@ def leave_meeting(db: Session, raw_code: str, participant_id: int) -> Meeting:
         participant.left_at = now
     db.flush()
     if meeting.status == MeetingStatus.LIVE and _active_count(db, meeting) == 0:
-        meeting.status = MeetingStatus.ENDED
-        meeting.ended_at = now
+        _close_session(meeting, now)
     db.commit()
     return meeting
 
@@ -263,7 +310,19 @@ def finish_meeting(db: Session, meeting: Meeting) -> Meeting:
     for participant in meeting.participants:
         if participant.left_at is None:
             participant.left_at = now
-    meeting.status = MeetingStatus.ENDED
-    meeting.ended_at = now
+    _close_session(meeting, now)
     db.commit()
     return meeting
+
+
+def _close_session(meeting: Meeting, now: datetime) -> None:
+    """End a live meeting. A recurring one goes back to 'scheduled' for its next occurrence (same Meeting ID)."""
+    meeting.ended_at = now
+    nxt = next_occurrence_after(meeting, now) if meeting.recurrence != Recurrence.NONE else None
+    if nxt is not None and nxt <= now:
+        nxt = add_interval(nxt, meeting.recurrence)  # the occurrence just held is done
+    if nxt is not None and not (meeting.recurrence_end and nxt.date() > meeting.recurrence_end):
+        meeting.status = MeetingStatus.SCHEDULED
+        meeting.scheduled_start = nxt
+    else:
+        meeting.status = MeetingStatus.ENDED

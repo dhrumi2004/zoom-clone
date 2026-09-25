@@ -18,7 +18,7 @@ import {
   toIso,
   toTimeValue,
 } from "@/lib/schedule";
-import type { Meeting, MeetingSettings } from "@/lib/types";
+import type { Meeting, MeetingSettings, Recurrence } from "@/lib/types";
 import type { UserSettings } from "@/lib/workspaceTypes";
 import { ScheduledMeetingDetails } from "./ScheduledMeetingDetails";
 
@@ -62,10 +62,7 @@ export function ScheduleMeetingDialog({ open, onClose, meeting, initialStart }: 
 const HOUR_OPTIONS = Array.from({ length: 25 }, (_, h) => h);
 const MINUTE_OPTIONS = [0, 15, 30, 45];
 
-type Settings = Pick<
-  MeetingSettings,
-  "waiting_room" | "mute_on_entry" | "host_video_on" | "participant_video_on" | "allow_chat" | "allow_screen_share"
->;
+type Settings = MeetingSettings;
 
 function initialValues(meeting: Meeting | null, hostName?: string, initialStart?: Date | null, defaults?: UserSettings) {
   const start = meeting?.scheduled_start ? new Date(meeting.scheduled_start) : (initialStart ?? nextHalfHour());
@@ -78,6 +75,8 @@ function initialValues(meeting: Meeting | null, hostName?: string, initialStart?
     hours: Math.floor(duration / 60),
     minutes: duration % 60,
     passcode: meeting?.passcode ?? randomPasscode(),
+    recurrence: (meeting?.recurrence ?? "none") as Recurrence,
+    recurrenceEnd: meeting?.recurrence_end ?? "",
     settings: {
       waiting_room: meeting?.settings.waiting_room ?? defaults?.default_waiting_room ?? false,
       mute_on_entry: meeting?.settings.mute_on_entry ?? defaults?.default_mute_on_entry ?? false,
@@ -85,6 +84,8 @@ function initialValues(meeting: Meeting | null, hostName?: string, initialStart?
       participant_video_on: meeting?.settings.participant_video_on ?? true,
       allow_chat: meeting?.settings.allow_chat ?? true,
       allow_screen_share: meeting?.settings.allow_screen_share ?? true,
+      allow_unmute: meeting?.settings.allow_unmute ?? true,
+      allow_rename: meeting?.settings.allow_rename ?? true,
     } as Settings,
   };
 }
@@ -125,6 +126,8 @@ function ScheduleForm({
       next.when = "The start time must be in the future.";
     if (values.hours * 60 + values.minutes < 15) next.duration = "Duration must be at least 15 minutes.";
     if (!/^[A-Za-z0-9]{1,10}$/.test(values.passcode)) next.passcode = "Use 1 to 10 letters or numbers.";
+    if (values.recurrence !== "none" && values.recurrenceEnd && values.recurrenceEnd < values.date)
+      next.recurrence = "The end date must be on or after the first meeting.";
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -140,6 +143,8 @@ function ScheduleForm({
       duration_min: values.hours * 60 + values.minutes,
       passcode: values.passcode,
       settings: values.settings,
+      recurrence: values.recurrence,
+      recurrence_end: values.recurrence !== "none" && values.recurrenceEnd ? values.recurrenceEnd : null,
     };
     try {
       const result = meeting ? await api.update(meeting.meeting_code, payload) : await api.schedule(payload);
@@ -237,6 +242,40 @@ function ScheduleForm({
           <span className="text-ink-muted">min</span>
         </div>
         <FieldError>{errors.duration}</FieldError>
+      </div>
+
+      <div className="space-y-2">
+        <Checkbox
+          checked={values.recurrence !== "none"}
+          onChange={(on) => set("recurrence", on ? "weekly" : "none")}
+          label="Recurring meeting"
+          hint="Same Meeting ID and link every time."
+        />
+        {values.recurrence !== "none" && (
+          <div className="flex flex-col gap-2 pl-6 sm:flex-row sm:items-center">
+            <Select
+              aria-label="Recurrence"
+              value={values.recurrence}
+              onChange={(e) => set("recurrence", e.target.value as Recurrence)}
+              className="sm:w-36"
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </Select>
+            <span className="text-sm text-ink-muted">until</span>
+            <TextInput
+              type="date"
+              aria-label="End date"
+              value={values.recurrenceEnd}
+              min={values.date}
+              onChange={(e) => set("recurrenceEnd", e.target.value)}
+              className="sm:w-44"
+            />
+            <span className="text-xs text-ink-muted">(optional)</span>
+          </div>
+        )}
+        <FieldError>{errors.recurrence}</FieldError>
       </div>
 
       <Section title="Security">

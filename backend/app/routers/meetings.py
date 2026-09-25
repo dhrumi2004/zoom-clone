@@ -20,6 +20,7 @@ from ..schemas import (
     ScheduledMeetingUpdate,
     VerifyRequest,
 )
+from ..realtime.manager import manager
 from ..services import meetings as service
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
@@ -97,14 +98,15 @@ def delete_meeting(code: str, db: Session = Depends(get_db), user: User = Depend
 @router.post("/{code}/verify", response_model=MeetingPublic)
 def verify(code: str, data: VerifyRequest, db: Session = Depends(get_db)) -> Meeting:
     """Check the meeting exists, hasn't ended and the passcode is right, before showing the pre-join screen."""
-    return service.verify_join(db, code, data.passcode)
+    return service.verify_join(db, code, data.passcode, locked=manager.is_locked(service.normalize_code(code)))
 
 
 @router.post("/{code}/join", response_model=JoinResponse)
 def join(
     code: str, data: JoinRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
-    participant: Participant = service.join_meeting(db, user, code, data)
+    locked = manager.is_locked(service.normalize_code(code))  # the host's Security > Lock meeting
+    participant: Participant = service.join_meeting(db, user, code, data, locked=locked)
     return {"participant": participant, "meeting": participant.meeting}
 
 

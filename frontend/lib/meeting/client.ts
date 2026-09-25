@@ -10,7 +10,16 @@ import { ICE_SERVERS, WS_URL } from "@/lib/config";
 import { LocalMedia, LocalMediaState } from "./localMedia";
 import { LocalTracks, Peer, SLOT } from "./peer";
 import { Store } from "./store";
-import { ChatMessage, CLOSE_CODES, RoomParticipant, ServerMessage, WaitingPerson } from "./types";
+import {
+  BreakoutState,
+  ChatMessage,
+  CLOSE_CODES,
+  Poll,
+  RoomParticipant,
+  SecurityState,
+  ServerMessage,
+  WaitingPerson,
+} from "./types";
 
 export type ConnectionStatus = "connecting" | "waiting" | "connected" | "disconnected" | "ended" | "removed" | "replaced" | "failed";
 
@@ -18,6 +27,13 @@ export interface RemoteMedia {
   camera: MediaStream;
   screen: MediaStream;
   connection: RTCPeerConnectionState;
+}
+
+export interface Caption {
+  participantId: number;
+  text: string;
+  final: boolean;
+  at: number;
 }
 
 export interface Reaction {
@@ -41,6 +57,18 @@ export interface MeetingState {
   /** Hosts: people in the waiting room */
   waiting: WaitingPerson[];
   error: string | null;
+  /** 0 = main room; breakout rooms have a name */
+  roomId: number;
+  roomName: string | null;
+  spotlightId: number | null;
+  security: SecurityState | null;
+  /** Someone in the meeting is recording */
+  recording: boolean;
+  /** Latest caption line per speaker */
+  captions: Record<number, Caption>;
+  polls: Poll[];
+  breakout: BreakoutState;
+  videoRequested: boolean;
 }
 
 const REACTION_MS = 4000;
@@ -72,6 +100,15 @@ export class MeetingClient extends Store<MeetingState> {
       unmuteRequested: false,
       waiting: [],
       error: null,
+      roomId: 0,
+      roomName: null,
+      spotlightId: null,
+      security: null,
+      recording: false,
+      captions: {},
+      polls: [],
+      breakout: { open: false, rooms: [] },
+      videoRequested: false,
     });
     this.lastMedia = media.getSnapshot();
   }
@@ -106,9 +143,16 @@ export class MeetingClient extends Store<MeetingState> {
 
   // ---------- actions ----------
 
-  sendChat(content: string) {
+  /** `toId` sends a private message to one participant. */
+  sendChat(content: string, toId?: number | null) {
     const text = content.trim();
-    if (text) this.send({ type: "chat", content: text });
+    if (text) this.send({ type: "chat", content: text, ...(toId ? { to_id: toId } : {}) });
+  }
+  rename(name: string, targetId?: number) {
+    this.send({ type: "rename", name, ...(targetId ? { target_id: targetId } : {}) });
+  }
+  sendCaption(text: string, final: boolean) {
+    this.send({ type: "caption", text, final });
   }
   react(emoji: string) {
     this.send({ type: "reaction", emoji });
@@ -130,6 +174,57 @@ export class MeetingClient extends Store<MeetingState> {
   }
   endForAll() {
     this.send({ type: "end_meeting" });
+  }
+  stopVideo(targetId: number) {
+    this.send({ type: "stop_video", target_id: targetId });
+  }
+  askToStartVideo(targetId: number) {
+    this.send({ type: "ask_start_video", target_id: targetId });
+  }
+  lowerAllHands() {
+    this.send({ type: "lower_all_hands" });
+  }
+  lowerHand(targetId: number) {
+    this.send({ type: "lower_hand", target_id: targetId });
+  }
+  spotlight(targetId: number | null) {
+    this.send({ type: "spotlight", target_id: targetId });
+  }
+  setCohost(targetId: number, value: boolean) {
+    this.send({ type: "set_cohost", target_id: targetId, value });
+  }
+  updateSecurity(change: Partial<{ locked: boolean } & SecurityState["settings"]>) {
+    this.send({ type: "security", ...change });
+  }
+  setRecording(active: boolean) {
+    this.send({ type: "recording", active });
+  }
+  createPoll(question: string, options: string[], anonymous: boolean) {
+    this.send({ type: "poll_create", question, options, anonymous });
+  }
+  vote(pollId: number, optionId: number) {
+    this.send({ type: "poll_vote", poll_id: pollId, option_id: optionId });
+  }
+  endPoll(pollId: number) {
+    this.send({ type: "poll_end", poll_id: pollId });
+  }
+  sharePollResults(pollId: number, shared: boolean) {
+    this.send({ type: "poll_share", poll_id: pollId, shared });
+  }
+  openBreakouts(rooms: { name: string; participant_ids: number[] }[]) {
+    this.send({ type: "breakout_open", rooms });
+  }
+  assignBreakout(targetId: number, roomId: number) {
+    this.send({ type: "breakout_assign", target_id: targetId, room_id: roomId });
+  }
+  joinBreakout(roomId: number) {
+    this.send({ type: "breakout_join", room_id: roomId });
+  }
+  closeBreakouts() {
+    this.send({ type: "breakout_close" });
+  }
+  dismissVideoRequest() {
+    this.setState({ videoRequested: false });
   }
   admit(targetId: number) {
     this.send({ type: "admit", target_id: targetId });
@@ -154,6 +249,9 @@ export class MeetingClient extends Store<MeetingState> {
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "room_state": {
+        // A second room_state means we moved (breakout rooms): drop every connection from the old room.
+        const moved = this.state.status === "connected" && msg.room_id !== this.state.roomId;
+        if (moved) [...this.peers.keys()].forEach((id) => this.closePeer(id));
         this.setState({
           status: "connected",
           selfId: msg.self_id,
@@ -161,7 +259,16 @@ export class MeetingClient extends Store<MeetingState> {
           messages: msg.messages,
           screenSharerId: msg.screen_sharer_id,
           waiting: msg.waiting ?? [],
+          roomId: msg.room_id,
+          roomName: msg.room_name,
+          spotlightId: msg.spotlight_id,
+          recording: msg.recording,
+          polls: msg.polls,
+          security: msg.security,
+          breakout: msg.breakout,
+          captions: {},
         });
+        if (moved) this.notify(msg.room_name ? `You joined ${msg.room_name}` : "You're back in the main room");
         // Report our real mic/camera state, then call everyone already here.
         this.sendMediaState(this.media.getSnapshot());
         if (this.media.getSnapshot().screenTrack) this.send({ type: "screen_share", active: true });
@@ -233,8 +340,44 @@ export class MeetingClient extends Store<MeetingState> {
       case "meeting_ended":
         this.setState({ status: "ended" });
         break;
+      case "force_video_off":
+        void this.media.setCam(false);
+        this.notify("The host has stopped your video");
+        break;
+      case "video_request":
+        this.setState({ videoRequested: true });
+        break;
+      case "spotlight":
+        this.setState({ spotlightId: msg.participant_id });
+        break;
+      case "cohost":
+        this.notify(msg.value ? "You are now a co-host" : "You are no longer a co-host");
+        break;
+      case "security":
+        this.setState({ security: { locked: msg.locked, settings: msg.settings } });
+        break;
+      case "recording":
+        if (msg.active !== this.state.recording) this.notify(msg.active ? "This meeting is being recorded" : "Recording stopped");
+        this.setState({ recording: msg.active });
+        break;
+      case "caption":
+        this.setState((s) => ({
+          captions: { ...s.captions, [msg.participant_id]: { participantId: msg.participant_id, text: msg.text, final: msg.final, at: Date.now() } },
+        }));
+        break;
+      case "poll": {
+        const known = this.state.polls.some((p) => p.id === msg.poll.id);
+        this.setState((s) => ({
+          polls: known ? s.polls.map((p) => (p.id === msg.poll.id ? msg.poll : p)) : [...s.polls, msg.poll],
+        }));
+        break;
+      }
+      case "breakout_state":
+        this.setState({ breakout: { open: msg.open, rooms: msg.rooms } });
+        break;
       case "error":
         if (msg.code === "someone_sharing" || msg.code === "share_disabled") this.media.stopScreenShare();
+        if (msg.code === "unmute_disabled") void this.media.setMic(false);
         if (this.state.status === "connecting" || this.state.status === "waiting") this.setState({ error: msg.detail });
         else this.notify(msg.detail);
         break;

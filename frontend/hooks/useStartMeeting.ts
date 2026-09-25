@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { api, ApiError } from "@/lib/api";
 import { saveJoinIntent } from "@/lib/joinIntent";
+import { prefs } from "@/lib/storage";
 import type { Meeting, User } from "@/lib/types";
 import { refreshMeetingLists } from "./useMeetings";
 import { useUserSettings } from "./useUserSettings";
@@ -16,9 +17,11 @@ export function useStartMeeting(user: User | undefined) {
   const [creating, setCreating] = useState(false);
   const { data: settings } = useUserSettings();
 
-  const enterAsHost = (code: string) => {
+  const enterAsHost = async (code: string) => {
+    // Clicked before the profile finished loading: fetch the name now instead of joining as "Host"
+    const name = user?.name ?? (await api.getMe().catch(() => null))?.name ?? "Host";
     saveJoinIntent(code, {
-      displayName: user?.name ?? "Host",
+      displayName: name,
       asHost: true,
       // Settings > Meetings: "Start meetings with my video on" / "Mute my microphone when joining"
       audioOn: !(settings?.mute_on_join ?? false),
@@ -31,10 +34,10 @@ export function useStartMeeting(user: User | undefined) {
   const startInstant = async (beforeEnter?: (meeting: Meeting) => Promise<void>) => {
     setCreating(true);
     try {
-      const meeting = await api.createInstant();
+      const meeting = await api.createInstant({ usePmi: prefs.usePmi() });
       await beforeEnter?.(meeting);
       refreshMeetingLists();
-      enterAsHost(meeting.meeting_code);
+      await enterAsHost(meeting.meeting_code);
     } catch (e) {
       toast(e instanceof ApiError ? e.message : "Couldn't start a meeting.", "error");
       setCreating(false);

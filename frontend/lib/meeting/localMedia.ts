@@ -4,8 +4,10 @@
  * - Mute keeps the mic track but disables it (instant, like Zoom).
  * - Stop Video releases the camera (the camera light turns off); Start Video asks for a new track.
  * - The MeetingClient listens for changes and swaps tracks on every peer connection.
+ * - Background blur replaces the camera track with a processed one (see backgroundBlur.ts).
  */
 import { prefs } from "@/lib/storage";
+import type { BlurProcessor } from "./backgroundBlur";
 import { Store } from "./store";
 
 export interface LocalMediaState {
@@ -20,6 +22,9 @@ export interface LocalMediaState {
   micError: string | null;
   camError: string | null;
   camStarting: boolean;
+  blur: boolean;
+  blurLoading: boolean;
+  blurError: string | null;
 }
 
 function describeMediaError(error: unknown, device: "camera" | "microphone"): string {
@@ -41,6 +46,9 @@ export class LocalMedia extends Store<LocalMediaState> {
   private destroyed = false;
   private initialized = false;
   private micRequest: Promise<void> | null = null;
+  /** The real camera track; `videoTrack` is this or the blurred version of it. */
+  private rawVideo: MediaStreamTrack | null = null;
+  private blurProcessor: BlurProcessor | null = null;
 
   constructor() {
     super({
@@ -54,6 +62,9 @@ export class LocalMedia extends Store<LocalMediaState> {
       micError: null,
       camError: null,
       camStarting: false,
+      blur: prefs.blur(),
+      blurLoading: false,
+      blurError: null,
     });
   }
 
@@ -92,6 +103,9 @@ export class LocalMedia extends Store<LocalMediaState> {
 
   async setCam(on: boolean): Promise<void> {
     if (!on) {
+      this.stopBlur();
+      this.rawVideo?.stop();
+      this.rawVideo = null;
       this.state.videoTrack?.stop();
       this.setState({ videoTrack: null, cameraStream: null, camOn: false });
       return;
@@ -106,11 +120,75 @@ export class LocalMedia extends Store<LocalMediaState> {
       const track = stream.getVideoTracks()[0];
       if (this.destroyed) return track.stop();
       track.onended = () => this.setCam(false); // camera unplugged / revoked
-      this.setState({ videoTrack: track, cameraStream: new MediaStream([track]), camOn: true, camError: null });
+      this.rawVideo = track;
+      this.setState({ camOn: true, camError: null });
+      await this.applyVideo();
     } catch (error) {
       this.setState({ camError: describeMediaError(error, "camera"), camOn: false });
     } finally {
       this.setState({ camStarting: false });
+    }
+  }
+
+  /** Publish the raw camera track, or a blurred copy when blur is on. */
+  private async applyVideo() {
+    const raw = this.rawVideo;
+    if (!raw) return;
+    let track = raw;
+    if (this.state.blur) {
+      this.setState({ blurLoading: true });
+      try {
+        const { BlurProcessor } = await import("./backgroundBlur");
+        this.stopBlur();
+        this.blurProcessor = await BlurProcessor.create();
+        track = await this.blurProcessor.start(raw);
+        this.setState({ blurError: null });
+      } catch {
+        this.stopBlur();
+        this.setState({ blur: false, blurError: "Background blur isn't available on this device." });
+      } finally {
+        this.setState({ blurLoading: false });
+      }
+    } else {
+      this.stopBlur();
+    }
+    if (this.rawVideo !== raw || this.destroyed) return; // camera turned off meanwhile
+    this.setState({ videoTrack: track, cameraStream: new MediaStream([track]) });
+  }
+
+  private stopBlur() {
+    this.blurProcessor?.stop();
+    this.blurProcessor = null;
+  }
+
+  async setBlur(on: boolean): Promise<void> {
+    prefs.setBlur(on);
+    this.setState({ blur: on, blurError: null });
+    await this.applyVideo();
+  }
+
+  /** Switch camera during a call (the new track replaces the old one for everyone). */
+  async switchCamera(deviceId: string): Promise<void> {
+    prefs.setCameraId(deviceId);
+    if (!this.state.camOn) return;
+    await this.setCam(false);
+    await this.setCam(true);
+  }
+
+  async switchMic(deviceId: string): Promise<void> {
+    prefs.setMicId(deviceId);
+    const old = this.state.audioTrack;
+    if (!old) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...deviceConstraint(deviceId) },
+      });
+      const track = stream.getAudioTracks()[0];
+      track.enabled = this.state.micOn;
+      old.stop();
+      this.setState({ audioTrack: track, micError: null });
+    } catch (error) {
+      this.setState({ micError: describeMediaError(error, "microphone") });
     }
   }
 
@@ -141,6 +219,8 @@ export class LocalMedia extends Store<LocalMediaState> {
   /** Release every device (leaving the meeting or closing the page). */
   destroy() {
     this.destroyed = true;
+    this.stopBlur();
+    this.rawVideo?.stop();
     this.state.audioTrack?.stop();
     this.state.videoTrack?.stop();
     this.state.screenTrack?.stop();

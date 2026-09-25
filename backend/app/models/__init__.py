@@ -7,6 +7,11 @@ from .core import (  # noqa: F401
     MeetingType,
     Participant,
     ParticipantRole,
+    Poll,
+    PollOption,
+    PollStatus,
+    PollVote,
+    Recurrence,
     User,
 )
 from .workspace import (  # noqa: F401

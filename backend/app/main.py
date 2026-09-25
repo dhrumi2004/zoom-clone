@@ -8,6 +8,7 @@ from . import models  # noqa: F401  (registers tables on Base.metadata)
 from .config import CORS_ORIGIN_REGEX, CORS_ORIGINS
 from .database import Base, SessionLocal, engine
 from .exceptions import register_exception_handlers
+from .migrations import upgrade as upgrade_schema
 from .routers import apps, contacts, documents, mail, meetings, team_chat, users, ws
 from .seed import seed_if_empty
 
@@ -16,6 +17,7 @@ from .seed import seed_if_empty
 async def lifespan(_app: FastAPI):
     # Create tables and seed sample data on first run (also covers fresh deploys).
     Base.metadata.create_all(bind=engine)
+    upgrade_schema(engine)  # add columns introduced after a database was first created
     with SessionLocal() as db:
         seed_if_empty(db)
     yield

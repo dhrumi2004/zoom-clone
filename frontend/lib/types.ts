@@ -25,6 +25,8 @@ export interface MeetingSettings {
   participant_video_on: boolean;
   allow_chat: boolean;
   allow_screen_share: boolean;
+  allow_unmute: boolean;
+  allow_rename: boolean;
 }
 
 /** What anyone with the Meeting ID can see. */
@@ -49,7 +51,11 @@ export interface Meeting extends MeetingPublic {
   created_at: string;
   participant_count: number;
   invite_link: string;
+  recurrence: Recurrence;
+  recurrence_end: string | null; // "YYYY-MM-DD"
 }
+
+export type Recurrence = "none" | "daily" | "weekly" | "monthly";
 
 export interface Participant {
   id: number;
@@ -73,6 +79,8 @@ export interface ScheduleMeetingInput {
   duration_min: number;
   passcode?: string | null;
   settings?: Partial<MeetingSettings>;
+  recurrence?: Recurrence;
+  recurrence_end?: string | null;
 }
 
 export interface JoinMeetingInput {

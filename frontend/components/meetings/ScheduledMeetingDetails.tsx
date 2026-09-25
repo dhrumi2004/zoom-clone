@@ -1,16 +1,18 @@
 "use client";
 
-import { Copy } from "lucide-react";
+import { Copy, Mail } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { formatDuration, formatLongDate, formatMeetingCode, formatTimeRange } from "@/lib/format";
-import { buildInvitation, copyToClipboard } from "@/lib/invite";
+import { buildInvitation, copyToClipboard, emailInvitationUrl } from "@/lib/invite";
 import type { Meeting } from "@/lib/types";
 
 /** Shown after saving a new scheduled meeting: details + invite link + Copy invitation. */
 export function ScheduledMeetingDetails({ meeting, onDone }: { meeting: Meeting; onDone: () => void }) {
   const toast = useToast();
+  const router = useRouter();
 
   const copy = async (text: string, what: string) => {
     const ok = await copyToClipboard(text);
@@ -32,6 +34,12 @@ export function ScheduledMeetingDetails({ meeting, onDone }: { meeting: Meeting;
             {formatTimeRange(meeting.scheduled_start, meeting.duration_min)} ({formatDuration(meeting.duration_min)})
           </Row>
         )}
+        {meeting.recurrence !== "none" && (
+          <Row label="Repeats">
+            <span className="capitalize">{meeting.recurrence}</span>
+            {meeting.recurrence_end && ` until ${new Date(`${meeting.recurrence_end}T00:00`).toLocaleDateString()}`}
+          </Row>
+        )}
         <Row label="Meeting ID">{formatMeetingCode(meeting.meeting_code)}</Row>
         <Row label="Passcode">{meeting.passcode}</Row>
         <Row label="Invite link">
@@ -51,7 +59,10 @@ export function ScheduledMeetingDetails({ meeting, onDone }: { meeting: Meeting;
         </Row>
       </dl>
 
-      <div className="flex justify-end gap-2 pt-2">
+      <div className="flex flex-wrap justify-end gap-2 pt-2">
+        <Button variant="secondary" onClick={() => router.push(emailInvitationUrl(meeting))}>
+          <Mail className="size-4" /> Email invitation
+        </Button>
         <Button variant="secondary" onClick={() => copy(buildInvitation(meeting), "Invitation")}>
           <Copy className="size-4" /> Copy invitation
         </Button>

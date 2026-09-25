@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Repeat } from "lucide-react";
 import { ListState } from "@/components/dashboard/ListState";
 import { Button } from "@/components/ui/Button";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -83,6 +83,11 @@ function UpcomingMeetingRow({ meeting, onEdit }: { meeting: Meeting; onEdit?: (m
             </span>
           )}
           {when}
+          {meeting.recurrence !== "none" && (
+            <span className="inline-flex items-center gap-0.5" title={`Repeats ${meeting.recurrence}`}>
+              <Repeat className="size-3" /> Recurring
+            </span>
+          )}
         </p>
         <p className="truncate text-sm font-bold" title={meeting.title}>
           {meeting.title}

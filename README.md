@@ -49,6 +49,27 @@ Every tab in the top bar is a working, database-backed section:
 | **Apps** | Marketplace with categories and search; add/remove apps ("My apps") |
 | **Settings** | Profile (name, avatar color, job details), meeting defaults (start with video, mute on join, default duration, waiting room, mute on entry), camera/microphone selection with live preview and mic level, keyboard shortcuts |
 
+### More Zoom meeting features
+| Feature | How it works here |
+|---|---|
+| **Security menu** (host/co-host) | Lock meeting, enable waiting room, and allow participants to share screen / chat / rename / unmute themselves |
+| **Co-host** | The host can make anyone a co-host; co-hosts get host controls except ending the meeting or making co-hosts |
+| **Pin / Spotlight** | Pin a video just for you, or Spotlight it for everyone (from the "…" menu on any video tile) |
+| **Rename** | Rename yourself (if allowed) or, as host, anyone |
+| **Host video controls** | Stop someone's video, or ask them to start it |
+| **Lower all hands** | One click in the Participants panel |
+| **Private chat** | "To:" picker in Meeting Chat; private messages are marked (Direct Message) |
+| **Polls** | Launch a poll, see live results (with voter names unless anonymous), end it, share results with everyone. Stored in the database |
+| **Breakout rooms** | Create rooms, assign automatically or by hand, open them; each room is its own video call and chat. Hosts can visit rooms, move people, and close all rooms |
+| **Record to this computer** | Records the meeting tab + your mic and downloads a .webm; everyone sees a red **Recording** indicator |
+| **Live captions** | Speech-to-text of each person's voice (Chrome/Edge/Safari speech recognition), shown at the bottom for everyone |
+| **Background blur** | MediaPipe person segmentation blurs everything but you, before the video is sent |
+| **Device menus** | The ⌃ arrows next to Mute / Stop Video pick microphone, speaker and camera during the call |
+| **Meeting timer, full screen, hide self view** | In the top bar and the More menu |
+| **Personal Meeting ID** | "Use my PMI" under the New meeting arrow reuses your personal meeting room |
+| **Recurring meetings** | Daily / weekly / monthly with an optional end date; one Meeting ID, shown on the calendar as occurrences |
+| **Email invitation** | Opens Zoom Mail with the invitation filled in |
+
 ### Bonus
 - **Host controls:** Mute All, mute one person, Ask to Unmute (hosts can't force a mic on, same as Zoom), Remove participant, **End meeting for all**
 - **Waiting room:** guests wait until the host clicks **Admit** / **Admit all** / **Remove**
@@ -105,6 +126,10 @@ erDiagram
   users |o--o{ participants : "is (null for guests)"
   meetings ||--o{ chat_messages : contains
   participants ||--o{ chat_messages : sends
+  meetings ||--o{ polls : has
+  polls ||--o{ poll_options : has
+  polls ||--o{ poll_votes : receives
+  participants ||--o{ poll_votes : casts
   users ||--|| user_profiles : has
   users ||--|| user_settings : has
   users ||--o{ contacts : "owns (favorites)"
@@ -135,6 +160,8 @@ erDiagram
     datetime scheduled_start
     int duration_min "CHECK > 0"
     string passcode
+    string recurrence "none | daily | weekly | monthly"
+    date recurrence_end
     datetime started_at
     datetime ended_at
     datetime created_at
@@ -165,8 +192,24 @@ erDiagram
     int id PK
     int meeting_id FK
     int participant_id FK
+    int recipient_id FK "null = everyone"
     text content
     datetime sent_at
+  }
+  polls {
+    int id PK
+    int meeting_id FK
+    int created_by FK
+    string question
+    bool anonymous
+    string status "open | ended"
+    bool results_shared
+  }
+  poll_votes {
+    int id PK
+    int poll_id FK
+    int option_id FK
+    int participant_id FK "UNIQUE(poll_id, participant_id)"
   }
 ```
 
@@ -185,6 +228,8 @@ The workspace tables (details in `backend/app/models/workspace.py`):
 - **Integrity:** foreign keys are enforced (SQLite needs `PRAGMA foreign_keys=ON`, set on every connection). Deleting a meeting cascades to its settings, participants and messages; deleting a user sets `participants.user_id` to NULL.
 - **Indexes** match the actual queries: `(host_id, status, scheduled_start)` for the dashboard, `(meeting_id, left_at)` for "who's in the meeting", `(meeting_id, sent_at)` for chat history.
 - **Times are stored in UTC** and sent with a `Z` suffix; the browser shows them in the viewer's time zone.
+- **Schema upgrades:** `create_all` only creates missing tables, so `backend/app/migrations.py` adds columns introduced later (for example `recurrence`, `recipient_id`) with `ALTER TABLE` on startup. Existing databases keep their data.
+- **Live-session state stays in memory, not the database:** who is connected, which breakout room they're in, co-hosts, lock, spotlight and recording. It only matters while the meeting runs.
 - **Seed data** (`backend/app/seed.py`): a default user, 5 colleagues, 6 upcoming meetings (dated relative to "now"), and 5 past meetings with participants and chat. It runs automatically on first start.
 
 ---
@@ -289,11 +334,12 @@ npm run dev                          # http://localhost:3000
 ### Browser tests
 With both servers running on a **fresh** database:
 ```bash
-cd e2e && npm install && npm run all
+cd e2e && npm install && npm run all   # runs every file with a time limit and cleans up its browsers
 ```
 - `flows.mjs`: join validation (bad ID, passcode step, wrong passcode), scheduling, invite links, instant meetings
 - `meeting.mjs`: two browsers: video/audio both ways, mute, camera toggle, reactions, screen share, end for all
 - `host-controls.mjs`: three browsers: waiting room admit/remove, chat both ways, mute, ask to unmute, mute all, remove
+- `meeting-extras.mjs`: co-host, rename, pin/spotlight, security (lock, rename/unmute permissions), private chat, stop/ask video, polls, breakout rooms, hide self view, device menus, background blur, recording, PMI
 - `workspace.mjs`: every top-bar section: Team Chat, Mail, Calendar, Docs (autosave + reload), Whiteboards (draw, save, undo), Contacts, Apps, Settings (profile, defaults, camera preview)
 
 ---
@@ -326,5 +372,8 @@ cd e2e && npm install && npm run all
 - **Live meeting state** (who is connected, waiting room, raised hands, screen sharer) is kept **in the server's memory**, so the backend runs as **one worker**. Scaling out would move this into Redis pub/sub.
 - **Camera and mic require HTTPS or localhost** (a browser rule). To test from a phone, use the deployed HTTPS site.
 - **Workspace sections are single-user**, like the rest of the app: Team Chat and Mail show seeded messages from colleagues, and what you send is stored, but no real person receives it (there's no login). Team Chat refreshes every few seconds instead of using WebSockets. Mail stays inside the app (no SMTP).
-- Not built: recording, breakout rooms, private in-meeting chat, virtual backgrounds, the in-meeting device menu (the toolbar ⌃ carets are visual only; pick devices in Settings > Video & Audio), and real-time co-editing of docs and whiteboards.
+- **Not possible in a browser clone:** phone dial-in, cloud recording on Zoom's servers, remote control of another computer, Zoom Rooms hardware. **Not built:** AI Companion (needs a paid AI service), webinars/events, virtual background images (blur is built), annotation on shared screens, file sharing in chat, and real-time co-editing of docs and whiteboards.
+- **Recordings** are saved to your computer (Zoom's "Record to this computer"); choose "This tab" when the browser asks what to record.
+- **Captions** transcribe each person in their own browser, so they work for people using Chrome, Edge or Safari (Firefox has no speech recognition).
+- **Recurring meetings:** past sessions of a recurring meeting don't appear under Recent meetings (the meeting row moves on to its next occurrence).
 - The "zoom" wordmark is drawn with text, not Zoom's trademarked logo.

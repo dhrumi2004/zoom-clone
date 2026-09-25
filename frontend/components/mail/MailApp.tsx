@@ -29,9 +29,12 @@ export function MailApp() {
   const folder = (FOLDERS.find((f) => f.id === params.get("folder"))?.id ?? "inbox") as MailFolder;
   const openId = Number(params.get("m")) || null;
   const [query, setQuery] = useState("");
-  // /mail?compose=someone@x.com (from Contacts' "Email" button) opens a new message to them
-  const composeTo = params.get("compose");
-  const [draft, setDraft] = useState<Draft | null>(() => (composeTo ? { to: composeTo, subject: "", body: "" } : null));
+  // /mail?compose=someone@x.com&subject=…&body=… (Contacts' "Email", "Email invitation") opens a new message
+  const [draft, setDraft] = useState<Draft | null>(() =>
+    params.has("compose")
+      ? { to: params.get("compose") ?? "", subject: params.get("subject") ?? "", body: params.get("body") ?? "" }
+      : null,
+  );
 
   const listKey = ["mail", folder, query];
   const { data } = useSWR(listKey, () => api.getMail(folder, query), { refreshInterval: 30_000, keepPreviousData: true });

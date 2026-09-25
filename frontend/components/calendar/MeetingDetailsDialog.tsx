@@ -1,6 +1,7 @@
 "use client";
 
-import { Copy, Pencil, Trash2, Video } from "lucide-react";
+import { Copy, Mail, Pencil, Trash2, Video } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -11,7 +12,7 @@ import { refreshMeetingLists } from "@/hooks/useMeetings";
 import { useStartMeeting } from "@/hooks/useStartMeeting";
 import { api, ApiError } from "@/lib/api";
 import { formatLongDate, formatMeetingCode, formatTime } from "@/lib/format";
-import { buildInvitation, copyToClipboard } from "@/lib/invite";
+import { buildInvitation, copyToClipboard, emailInvitationUrl } from "@/lib/invite";
 import type { Meeting } from "@/lib/types";
 import { meetingSpan } from "./calendarMath";
 
@@ -26,6 +27,7 @@ export function MeetingDetailsDialog({
   onEdit: (m: Meeting) => void;
 }) {
   const toast = useToast();
+  const router = useRouter();
   const { user } = useCurrentUser();
   const { enterAsHost } = useStartMeeting(user);
   const [confirm, setConfirm] = useState(false);
@@ -45,6 +47,7 @@ export function MeetingDetailsDialog({
           <Row label="Status">
             {meeting.status === "live" ? <span className="font-bold text-success">In progress</span> : ended ? "Ended" : "Scheduled"}
           </Row>
+          {meeting.recurrence !== "none" && <Row label="Repeats">{meeting.recurrence}</Row>}
           {meeting.description && <Row label="Description">{meeting.description}</Row>}
         </dl>
         <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -58,6 +61,9 @@ export function MeetingDetailsDialog({
               </Button>
             </>
           )}
+          <Button variant="soft" size="sm" onClick={() => router.push(emailInvitationUrl(meeting))}>
+            <Mail className="size-4" /> Email
+          </Button>
           <Button
             variant="secondary"
             size="sm"

@@ -1,7 +1,7 @@
 """Participant and chat database operations used by the WebSocket layer."""
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..exceptions import AppError, NotFoundError
@@ -56,10 +56,13 @@ def set_media_state(
     return participant
 
 
-def mute_all(db: Session, meeting_id: int) -> List[Participant]:
-    """Mute every non-host who is currently unmuted. Returns the rows that changed."""
+def mute_all(db: Session, meeting_id: int, keep_ids: Optional[set] = None) -> List[Participant]:
+    """Mute everyone except the host and `keep_ids` (co-hosts) who is currently unmuted. Returns the rows that changed."""
+    keep_ids = keep_ids or set()
     changed = [
-        p for p in active_participants(db, meeting_id) if p.role != ParticipantRole.HOST and not p.is_muted
+        p
+        for p in active_participants(db, meeting_id)
+        if p.role != ParticipantRole.HOST and p.id not in keep_ids and not p.is_muted
     ]
     for participant in changed:
         participant.is_muted = True
@@ -85,25 +88,52 @@ def remove_participant(db: Session, meeting_id: int, target_id: int) -> Particip
     return target
 
 
-def save_chat_message(db: Session, participant_id: int, content: str) -> ChatMessage:
+def save_chat_message(
+    db: Session, participant_id: int, content: str, recipient_id: Optional[int] = None
+) -> ChatMessage:
+    """Everyone chat, or a private message when `recipient_id` is set."""
     content = content.strip()
     if not content:
         raise AppError(422, "empty_message", "Message can't be empty.")
     if len(content) > MAX_CHAT_LENGTH:
         raise AppError(422, "message_too_long", f"Messages are limited to {MAX_CHAT_LENGTH} characters.")
     participant = db.get(Participant, participant_id)
-    message = ChatMessage(meeting_id=participant.meeting_id, sender=participant, content=content)
+    recipient = None
+    if recipient_id is not None:
+        recipient = get_target(db, participant.meeting_id, recipient_id)
+        if recipient.id == participant.id:
+            raise AppError(422, "self_message", "You can't send a private message to yourself.")
+    message = ChatMessage(meeting_id=participant.meeting_id, sender=participant, recipient=recipient, content=content)
     db.add(message)
     db.commit()
     return message
 
 
-def recent_messages(db: Session, meeting: Meeting) -> List[ChatMessage]:
-    """Chat history for someone joining mid-meeting (only messages from the current session)."""
-    query = select(ChatMessage).where(ChatMessage.meeting_id == meeting.id)
+def rename(db: Session, participant_id: int, name: str) -> Participant:
+    name = name.strip()
+    if not name or len(name) > 100:
+        raise AppError(422, "bad_name", "Names must be 1 to 100 characters.")
+    participant = db.get(Participant, participant_id)
+    participant.display_name = name
+    db.commit()
+    return participant
+
+
+def recent_messages(db: Session, meeting: Meeting, viewer_id: int) -> List[ChatMessage]:
+    """Chat history for someone joining mid-meeting: messages to everyone plus their own private ones."""
+    query = select(ChatMessage).where(
+        ChatMessage.meeting_id == meeting.id,
+        or_(
+            ChatMessage.recipient_id.is_(None),
+            ChatMessage.recipient_id == viewer_id,
+            ChatMessage.participant_id == viewer_id,
+        ),
+    )
     if meeting.started_at is not None:
         query = query.where(ChatMessage.sent_at >= meeting.started_at)
     rows = db.scalars(
-        query.order_by(ChatMessage.sent_at.desc()).limit(CHAT_HISTORY_LIMIT).options(selectinload(ChatMessage.sender))
+        query.order_by(ChatMessage.sent_at.desc())
+        .limit(CHAT_HISTORY_LIMIT)
+        .options(selectinload(ChatMessage.sender), selectinload(ChatMessage.recipient))
     ).all()
     return list(reversed(rows))

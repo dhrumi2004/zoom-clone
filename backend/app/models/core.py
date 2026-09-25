@@ -5,12 +5,13 @@ users 1──* meetings 1──1 meeting_settings
                     1──* chat_messages *──1 participants
 """
 import enum
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,6 +41,13 @@ class MeetingStatus(str, enum.Enum):
 class ParticipantRole(str, enum.Enum):
     HOST = "host"
     PARTICIPANT = "participant"
+
+
+class Recurrence(str, enum.Enum):
+    NONE = "none"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 
 def _str_enum(enum_cls: type) -> Enum:
@@ -87,6 +96,9 @@ class Meeting(Base):
     scheduled_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     passcode: Mapped[str] = mapped_column(String(10))
+    # Recurring meetings keep one Meeting ID; scheduled_start always holds the next occurrence.
+    recurrence: Mapped[Recurrence] = mapped_column(_str_enum(Recurrence), default=Recurrence.NONE)
+    recurrence_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -126,6 +138,9 @@ class MeetingSettings(Base):
     participant_video_on: Mapped[bool] = mapped_column(Boolean, default=True)
     allow_chat: Mapped[bool] = mapped_column(Boolean, default=True)
     allow_screen_share: Mapped[bool] = mapped_column(Boolean, default=True)
+    # In-meeting Security menu: "Allow participants to unmute themselves / rename themselves"
+    allow_unmute: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_rename: Mapped[bool] = mapped_column(Boolean, default=True)
 
     meeting: Mapped["Meeting"] = relationship(back_populates="settings")
 
@@ -150,7 +165,9 @@ class Participant(Base):
 
     meeting: Mapped["Meeting"] = relationship(back_populates="participants")
     user: Mapped[Optional["User"]] = relationship(back_populates="participations")
-    messages: Mapped[List["ChatMessage"]] = relationship(back_populates="sender", cascade="all, delete-orphan")
+    messages: Mapped[List["ChatMessage"]] = relationship(
+        back_populates="sender", cascade="all, delete-orphan", foreign_keys="ChatMessage.participant_id"
+    )
 
     @property
     def is_active(self) -> bool:
@@ -164,12 +181,71 @@ class ChatMessage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     meeting_id: Mapped[int] = mapped_column(ForeignKey("meetings.id", ondelete="CASCADE"))
     participant_id: Mapped[int] = mapped_column(ForeignKey("participants.id", ondelete="CASCADE"))
+    # NULL = to everyone; otherwise a private message to one participant
+    recipient_id: Mapped[Optional[int]] = mapped_column(ForeignKey("participants.id", ondelete="CASCADE"), nullable=True)
     content: Mapped[str] = mapped_column(Text)
     sent_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     meeting: Mapped["Meeting"] = relationship(back_populates="messages")
-    sender: Mapped["Participant"] = relationship(back_populates="messages")
+    sender: Mapped["Participant"] = relationship(back_populates="messages", foreign_keys=[participant_id])
+    recipient: Mapped[Optional["Participant"]] = relationship(foreign_keys=[recipient_id])
 
     @property
     def sender_name(self) -> str:
         return self.sender.display_name
+
+    @property
+    def recipient_name(self) -> Optional[str]:
+        return self.recipient.display_name if self.recipient else None
+
+
+# ---------- Polls ----------
+
+class PollStatus(str, enum.Enum):
+    OPEN = "open"
+    ENDED = "ended"
+
+
+class Poll(Base):
+    __tablename__ = "polls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    meeting_id: Mapped[int] = mapped_column(ForeignKey("meetings.id", ondelete="CASCADE"), index=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("participants.id", ondelete="SET NULL"), nullable=True)
+    question: Mapped[str] = mapped_column(String(300))
+    anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[PollStatus] = mapped_column(_str_enum(PollStatus), default=PollStatus.OPEN)
+    results_shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    options: Mapped[List["PollOption"]] = relationship(
+        back_populates="poll", cascade="all, delete-orphan", order_by="PollOption.position"
+    )
+    votes: Mapped[List["PollVote"]] = relationship(back_populates="poll", cascade="all, delete-orphan")
+
+
+class PollOption(Base):
+    __tablename__ = "poll_options"
+    __table_args__ = (UniqueConstraint("poll_id", "position", name="uq_poll_options_position"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    poll_id: Mapped[int] = mapped_column(ForeignKey("polls.id", ondelete="CASCADE"))
+    position: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(String(200))
+
+    poll: Mapped["Poll"] = relationship(back_populates="options")
+
+
+class PollVote(Base):
+    """One vote per participant per poll (single choice, like Zoom's default poll)."""
+
+    __tablename__ = "poll_votes"
+    __table_args__ = (UniqueConstraint("poll_id", "participant_id", name="uq_poll_votes_one_per_person"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    poll_id: Mapped[int] = mapped_column(ForeignKey("polls.id", ondelete="CASCADE"))
+    option_id: Mapped[int] = mapped_column(ForeignKey("poll_options.id", ondelete="CASCADE"))
+    participant_id: Mapped[int] = mapped_column(ForeignKey("participants.id", ondelete="CASCADE"))
+    voted_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    poll: Mapped["Poll"] = relationship(back_populates="votes")

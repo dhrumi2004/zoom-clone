@@ -220,6 +220,10 @@ render.yaml            Render deployment blueprint
 
 **Requirements:** Python 3.9+ and Node.js 20+ (Google Chrome is needed only for the e2e tests).
 
+**Quick start (macOS/Linux):** `./start.sh` installs what's missing and runs both servers. Open http://localhost:3000.
+
+Or step by step:
+
 **1. Backend** (terminal 1)
 ```bash
 cd backend
